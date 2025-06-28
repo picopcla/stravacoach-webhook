@@ -1,14 +1,14 @@
 import json
-import os
 import io
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # -------------------------
-# Auth Google Drive (via service_account.json local)
+# Auth Google Drive (via service_account.json local sécurisé)
 # -------------------------
-with open('service_account.json') as f:
+with open('StravaCoach/security/service_account.json') as f:
     service_account_info = json.load(f)
 
 credentials = service_account.Credentials.from_service_account_info(
@@ -22,8 +22,7 @@ FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 # -------------------------
 results = drive_service.files().list(
     q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
-    spaces='drive',
-    fields='files(id, name)').execute()
+    spaces='drive', fields='files(id, name)').execute()
 files = results.get('files', [])
 
 if not files:
@@ -46,24 +45,52 @@ except json.decoder.JSONDecodeError:
     exit()
 
 # -------------------------
-# Afficher le résumé avec pace mn:ss
+# Afficher le résumé avec moving pace, velocity, alt, temp
 # -------------------------
 for act in data:
-    print(f"\n📝 Activité ID: {act.get('activity_id', '-')}")
+    activity_id = act.get("activity_id", "-")
+    date_str = act.get("date")
+    if date_str:
+        dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
+        week = dt.isocalendar().week
+        year = dt.isocalendar().year
+        date_info = f"{dt.date()} | Semaine: {year}-W{week:02d}"
+    else:
+        date_info = "-"
+
+    print(f"\n📝 Activité ID: {activity_id} | Date: {date_info}")
     laps = act.get('laps', [])
     print(f"  Nombre de laps: {len(laps)}")
+
     for lap in laps:
         fc_str = f"{lap.get('fc_avg', 0):.1f}" if lap.get('fc_avg') is not None else "-"
+        fc_max_str = f"{lap.get('fc_max', 0):.1f}" if lap.get('fc_max') is not None else "-"
         cad_str = f"{lap.get('cadence_avg', 0):.1f}" if lap.get('cadence_avg') is not None else "-"
+        pace_mov = lap.get('pace_moving')
+        pace_vel = lap.get('pace_velocity')
+        temp_avg = lap.get('temp_avg')
+        gain_alt = lap.get('gain_alt')
 
-        pace = lap.get('pace')
-        if pace:
-            pace_min = int(pace)
-            pace_sec = int((pace - pace_min) * 60)
-            pace_str = f"{pace_min}:{pace_sec:02d}"
+        if pace_mov:
+            pace_min = int(pace_mov)
+            pace_sec = int((pace_mov - pace_min) * 60)
+            pace_mov_str = f"{pace_min}:{pace_sec:02d}"
         else:
-            pace_str = "-"
+            pace_mov_str = "-"
 
-        print(f"    Lap {lap.get('lap_number', '-')}: {lap.get('distance', 0)/1000:.2f} km en {lap.get('duration', 0)/60:.1f} min"
-              f" | Pace: {pace_str} min/km"
-              f" | FC moy: {fc_str} | Cadence: {cad_str}")
+        if pace_vel:
+            pace_min = int(pace_vel)
+            pace_sec = int((pace_vel - pace_min) * 60)
+            pace_vel_str = f"{pace_min}:{pace_sec:02d}"
+        else:
+            pace_vel_str = "-"
+
+        temp_str = f"{temp_avg:.1f}°C" if temp_avg is not None else "-"
+        gain_alt_str = f"{gain_alt:.1f} m" if gain_alt is not None else "-"
+
+        print(f"    Lap {lap.get('lap_number', '-')}: "
+              f"{lap.get('distance',0)/1000:.2f} km en {lap.get('duration',0)/60:.1f} min"
+              f" | Moving pace: {pace_mov_str} | Vitesse pace: {pace_vel_str}"
+              f" | FC moy: {fc_str} / max: {fc_max_str}"
+              f" | Cadence: {cad_str}"
+              f" | Δalt: {gain_alt_str} | Temp: {temp_str}")

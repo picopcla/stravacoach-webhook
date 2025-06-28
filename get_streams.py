@@ -48,15 +48,10 @@ headers = {"Authorization": f"Bearer {access_token}"}
 # ----------------------------
 # Auth Google Drive
 # ----------------------------
-with open('service_account.json') as f:
-    service_account_info = json.load(f)
+service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
 credentials = service_account.Credentials.from_service_account_info(
     service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
 drive_service = build('drive', 'v3', credentials=credentials)
-
-FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
-activities = []
-existing_ids = set()
 
 # ----------------------------
 # Charger activities.json depuis Drive
