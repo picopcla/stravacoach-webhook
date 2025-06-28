@@ -2,13 +2,49 @@ import json
 import os
 import sys
 import io
+import time
 import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # ----------------------------
-# Authentification Google Drive
+# Vérifier et rafraîchir le token Strava
+# ----------------------------
+with open("strava_tokens.json") as f:
+    tokens = json.load(f)
+
+access_token = tokens["access_token"]
+refresh_token = tokens["refresh_token"]
+expires_at = tokens["expires_at"]
+
+time_remaining = expires_at - int(time.time())
+if time_remaining < 300:
+    print(f"🔄 Token expirant dans {time_remaining}s, on le renouvelle...")
+    resp = requests.post(
+        "https://www.strava.com/api/v3/oauth/token",
+        data={
+            "client_id": "162245",
+            "client_secret": "0552c0e87d83493d7f6667d0570de1e8ac9e9a68",
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token
+        }
+    )
+    new_tokens = resp.json()
+    tokens["access_token"] = new_tokens["access_token"]
+    tokens["refresh_token"] = new_tokens["refresh_token"]
+    tokens["expires_at"] = new_tokens["expires_at"]
+    with open("strava_tokens.json", "w") as f:
+        json.dump(tokens, f, indent=2)
+    access_token = tokens["access_token"]
+    print("✅ Token Strava rafraîchi.")
+else:
+    print(f"✅ Token encore valide pour {time_remaining}s.")
+
+headers = {"Authorization": f"Bearer {access_token}"}
+
+# ----------------------------
+# Auth Google Drive
 # ----------------------------
 service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
 credentials = service_account.Credentials.from_service_account_info(
@@ -18,7 +54,7 @@ drive_service = build('drive', 'v3', credentials=credentials)
 # ----------------------------
 # Config
 # ----------------------------
-FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'  # Mets l'ID de ton dossier Drive partagé
+FOLDER_ID = 'TON_FOLDER_ID_ICI'  # remplace par ton vrai ID Drive
 activities = []
 existing_ids = set()
 
@@ -50,18 +86,10 @@ else:
     print("⚠️ Aucun activities.json sur Drive, on va en créer un nouveau.")
 
 # ----------------------------
-# Préparer Strava
+# Reconstruire les laps depuis les streams
 # ----------------------------
 activity_id_arg = int(sys.argv[1])
 
-with open("strava_tokens.json") as f:
-    tokens = json.load(f)
-access_token = tokens["access_token"]
-headers = {"Authorization": f"Bearer {access_token}"}
-
-# ----------------------------
-# Reconstruire les laps depuis les streams
-# ----------------------------
 def process_activity(activity_id):
     if activity_id in existing_ids:
         print(f"✅ Activité {activity_id} déjà présente, on skip.")
@@ -72,12 +100,12 @@ def process_activity(activity_id):
     resp = requests.get(url_streams, params=params, headers=headers)
     streams = resp.json()
 
-    time = streams.get("time", {}).get("data", [])
+    time_data = streams.get("time", {}).get("data", [])
     distance = streams.get("distance", {}).get("data", [])
     heartrate = streams.get("heartrate", {}).get("data", [])
     cadence = streams.get("cadence", {}).get("data", [])
 
-    if not time or not distance:
+    if not time_data or not distance:
         print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
         return
 
@@ -87,7 +115,7 @@ def process_activity(activity_id):
     for i, d in enumerate(distance):
         if d - distance[lap_start_idx] >= 1000 or i == len(distance) -1:
             lap_dist = distance[i] - distance[lap_start_idx]
-            lap_time = time[i] - time[lap_start_idx]
+            lap_time = time_data[i] - time_data[lap_start_idx]
             hr_lap = heartrate[lap_start_idx:i+1] if heartrate else []
             cad_lap = cadence[lap_start_idx:i+1] if cadence else []
 
@@ -126,14 +154,11 @@ params = {"per_page": 100, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
-print("📥 Réponse brute Strava activities:", latest_activities)
-
 if isinstance(latest_activities, list):
     for act in latest_activities:
         process_activity(act["id"])
 else:
     print("⚠️ Erreur Strava: ", latest_activities)
-
 
 # ----------------------------
 # ➡️ Sauvegarder et uploader sur Drive
