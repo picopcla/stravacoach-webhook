@@ -3,6 +3,8 @@ import json
 import requests
 import os
 
+MAX_NEW_STREAMS = 5  # ← pour limiter pendant les tests
+
 activity_id_arg = int(sys.argv[1])
 
 # Charger access_token
@@ -23,7 +25,7 @@ existing_ids = set(a["activity_id"] for a in activities)
 def process_activity(activity_id):
     if activity_id in existing_ids:
         print(f"✅ Activité {activity_id} déjà présente, on skip.")
-        return
+        return False
 
     # Récupérer les streams
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
@@ -38,9 +40,9 @@ def process_activity(activity_id):
 
     if not time or not distance:
         print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
-        return
+        return False
 
-    # Reconstruire les laps tous les 1 km
+    # Reconstruire les laps
     laps = []
     lap_start_idx = 0
     lap_number = 1
@@ -75,18 +77,23 @@ def process_activity(activity_id):
     })
     existing_ids.add(activity_id)
     print(f"🚀 Activité {activity_id} ajoutée avec {len(laps)} laps.")
+    return True
 
 # ➡️ 1. Traiter l'activité passée en argument
 process_activity(activity_id_arg)
 
-# ➡️ 2. Vérifier les 100 dernières activités
+# ➡️ 2. Vérifier les dernières activités avec limite pour les tests
 url = "https://www.strava.com/api/v3/athlete/activities"
 params = {"per_page": 100, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
+new_count = 0
 for act in latest_activities:
-    process_activity(act["id"])
+    if new_count >= MAX_NEW_STREAMS:
+        break
+    if process_activity(act["id"]):
+        new_count += 1
 
 # ➡️ Sauvegarder le JSON final
 with open("activities.json", "w") as f:
