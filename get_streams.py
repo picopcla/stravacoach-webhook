@@ -18,7 +18,7 @@ drive_service = build('drive', 'v3', credentials=credentials)
 # ----------------------------
 # Config
 # ----------------------------
-FOLDER_ID = '1kG1Q8d_ABCDefGHijKlmNOPqrsTuvWxY'  # Mets l'ID de ton dossier Drive partagé
+FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'  # Mets l'ID de ton dossier Drive partagé
 activities = []
 existing_ids = set()
 
