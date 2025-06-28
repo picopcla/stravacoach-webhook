@@ -54,7 +54,7 @@ drive_service = build('drive', 'v3', credentials=credentials)
 # ----------------------------
 # Config
 # ----------------------------
-FOLDER_ID = 'TON_FOLDER_ID_ICI'  # remplace par ton vrai ID Drive
+FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'  # remplace par ton vrai ID Drive
 activities = []
 existing_ids = set()
 
