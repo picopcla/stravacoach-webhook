@@ -1,59 +1,95 @@
 import sys
-import requests
 import json
-import time
+import requests
+import os
 
-# -------------------
-# Config : tokens Strava
-TOKEN_FILE = "strava_tokens.json"
-CLIENT_ID = "162245"
-CLIENT_SECRET = "0552c0e87d83493d7f6667d0570de1e8ac9e9a68"
+activity_id_arg = int(sys.argv[1])
 
-# -------------------
-def get_access_token():
-    with open(TOKEN_FILE, "r") as f:
-        tokens = json.load(f)
-    if time.time() > tokens["expires_at"]:
-        return refresh_access_token(tokens["refresh_token"])
-    return tokens["access_token"]
+# Charger access_token
+with open("strava_tokens.json") as f:
+    tokens = json.load(f)
+access_token = tokens["access_token"]
+headers = {"Authorization": f"Bearer {access_token}"}
 
-def refresh_access_token(refresh_token):
-    resp = requests.post("https://www.strava.com/api/v3/oauth/token", data={
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token
+# Charger JSON existant
+if os.path.exists("activities.json"):
+    with open("activities.json") as f:
+        activities = json.load(f)
+else:
+    activities = []
+
+existing_ids = set(a["activity_id"] for a in activities)
+
+def process_activity(activity_id):
+    if activity_id in existing_ids:
+        print(f"✅ Activité {activity_id} déjà présente, on skip.")
+        return
+
+    # Récupérer les streams
+    url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
+    params_streams = {"keys": "time,distance,heartrate,cadence", "key_by_type": "true"}
+    resp_streams = requests.get(url_streams, params=params_streams, headers=headers)
+    streams = resp_streams.json()
+
+    time = streams.get("time", {}).get("data", [])
+    distance = streams.get("distance", {}).get("data", [])
+    heartrate = streams.get("heartrate", {}).get("data", [])
+    cadence = streams.get("cadence", {}).get("data", [])
+
+    if not time or not distance:
+        print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
+        return
+
+    # Reconstruire les laps tous les 1 km
+    laps = []
+    lap_start_idx = 0
+    lap_number = 1
+    for i, d in enumerate(distance):
+        if d - distance[lap_start_idx] >= 1000 or i == len(distance) -1:
+            lap_dist = distance[i] - distance[lap_start_idx]
+            lap_time = time[i] - time[lap_start_idx]
+            hr_lap = heartrate[lap_start_idx:i+1] if heartrate else []
+            cad_lap = cadence[lap_start_idx:i+1] if cadence else []
+
+            fc_avg = sum(hr_lap)/len(hr_lap) if hr_lap else None
+            fc_max = max(hr_lap) if hr_lap else None
+            cad_avg = sum(cad_lap)/len(cad_lap) if cad_lap else None
+            pace = (lap_time/60) / (lap_dist/1000) if lap_dist > 0 else None
+
+            laps.append({
+                "lap_number": lap_number,
+                "distance": lap_dist,
+                "duration": lap_time,
+                "fc_avg": fc_avg,
+                "fc_max": fc_max,
+                "cadence_avg": cad_avg,
+                "pace": pace
+            })
+
+            lap_start_idx = i
+            lap_number +=1
+
+    activities.append({
+        "activity_id": activity_id,
+        "laps": laps
     })
-    resp.raise_for_status()
-    new_tokens = resp.json()
-    with open(TOKEN_FILE, "w") as f:
-        json.dump({
-            "access_token": new_tokens["access_token"],
-            "refresh_token": new_tokens["refresh_token"],
-            "expires_at": new_tokens["expires_at"]
-        }, f)
-    return new_tokens["access_token"]
+    existing_ids.add(activity_id)
+    print(f"🚀 Activité {activity_id} ajoutée avec {len(laps)} laps.")
 
-# -------------------
-def get_streams(activity_id, token):
-    url = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
-    params = {"keys": "time,distance,heartrate", "key_by_type": "true"}
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, params=params, headers=headers)
-    resp.raise_for_status()
-    return resp.json()
+# ➡️ 1. Traiter l'activité passée en argument
+process_activity(activity_id_arg)
 
-# -------------------
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("❌ Donne un activity_id en argument.")
-        sys.exit(1)
+# ➡️ 2. Vérifier les 100 dernières activités
+url = "https://www.strava.com/api/v3/athlete/activities"
+params = {"per_page": 100, "page": 1}
+resp = requests.get(url, params=params, headers=headers)
+latest_activities = resp.json()
 
-    activity_id = sys.argv[1]
-    token = get_access_token()
-    streams = get_streams(activity_id, token)
+for act in latest_activities:
+    process_activity(act["id"])
 
-    # Petit résumé
-    print(f"\n✅ Streams récupérés pour activité {activity_id}")
-    for key, values in streams.items():
-        print(f"- {key}: {len(values)} points")
+# ➡️ Sauvegarder le JSON final
+with open("activities.json", "w") as f:
+    json.dump(activities, f, indent=2)
+
+print(f"✅ Base de données mise à jour avec {len(activities)} activités consolidées.")
