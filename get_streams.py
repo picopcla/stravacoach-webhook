@@ -1,33 +1,70 @@
 import sys
 import json
-import requests
 import os
+import requests
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
-MAX_NEW_STREAMS = 5  # ← pour limiter pendant les tests
+# -----------------------
+# Auth Google Drive
+# -----------------------
+gauth = GoogleAuth()
+gauth.LocalWebserverAuth()  # ouvre ton navigateur
+drive = GoogleDrive(gauth)
 
+# -----------------------
+# Gérer le dossier Drive
+# -----------------------
+folder_name = "StravaData"
+folder_id = None
+
+file_list = drive.ListFile({'q': f"title='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"}).GetList()
+if file_list:
+    folder_id = file_list[0]['id']
+else:
+    folder_metadata = {'title': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}
+    folder = drive.CreateFile(folder_metadata)
+    folder.Upload()
+    folder_id = folder['id']
+
+# -----------------------
+# Argument activité
+# -----------------------
 activity_id_arg = int(sys.argv[1])
 
-# Charger access_token
+# -----------------------
+# Charger token Strava
+# -----------------------
 with open("strava_tokens.json") as f:
     tokens = json.load(f)
 access_token = tokens["access_token"]
 headers = {"Authorization": f"Bearer {access_token}"}
 
-# Charger JSON existant
-if os.path.exists("activities.json"):
+# -----------------------
+# Télécharger activities.json depuis Drive si existe
+# -----------------------
+activities = []
+existing_ids = set()
+
+file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false and title='activities.json'"}).GetList()
+if file_list:
+    drive_file = file_list[0]
+    drive_file.GetContentFile("activities.json")
     with open("activities.json") as f:
         activities = json.load(f)
+    existing_ids = set(a["activity_id"] for a in activities)
+    print(f"📥 Fichier activities.json récupéré de Drive avec {len(activities)} activités consolidées.")
 else:
-    activities = []
+    print("⚠️ Aucun fichier activities.json sur Drive, création d'une nouvelle base.")
 
-existing_ids = set(a["activity_id"] for a in activities)
-
+# -----------------------
+# Fonction traitement activité
+# -----------------------
 def process_activity(activity_id):
     if activity_id in existing_ids:
         print(f"✅ Activité {activity_id} déjà présente, on skip.")
-        return False
+        return
 
-    # Récupérer les streams
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {"keys": "time,distance,heartrate,cadence", "key_by_type": "true"}
     resp_streams = requests.get(url_streams, params=params_streams, headers=headers)
@@ -40,9 +77,9 @@ def process_activity(activity_id):
 
     if not time or not distance:
         print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
-        return False
+        return
 
-    # Reconstruire les laps
+    # Reconstituer laps
     laps = []
     lap_start_idx = 0
     lap_number = 1
@@ -67,7 +104,6 @@ def process_activity(activity_id):
                 "cadence_avg": cad_avg,
                 "pace": pace
             })
-
             lap_start_idx = i
             lap_number +=1
 
@@ -77,26 +113,28 @@ def process_activity(activity_id):
     })
     existing_ids.add(activity_id)
     print(f"🚀 Activité {activity_id} ajoutée avec {len(laps)} laps.")
-    return True
 
-# ➡️ 1. Traiter l'activité passée en argument
+# -----------------------
+# ➡️ 1. Process activité argument
+# -----------------------
 process_activity(activity_id_arg)
 
-# ➡️ 2. Vérifier les dernières activités avec limite pour les tests
+# ➡️ 2. Vérifier 100 dernières
 url = "https://www.strava.com/api/v3/athlete/activities"
 params = {"per_page": 100, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
-new_count = 0
 for act in latest_activities:
-    if new_count >= MAX_NEW_STREAMS:
-        break
-    if process_activity(act["id"]):
-        new_count += 1
+    process_activity(act["id"])
 
-# ➡️ Sauvegarder le JSON final
+# -----------------------
+# ➡️ Sauvegarder local & envoyer sur Drive
+# -----------------------
 with open("activities.json", "w") as f:
     json.dump(activities, f, indent=2)
 
-print(f"✅ Base de données mise à jour avec {len(activities)} activités consolidées.")
+file_drive = drive.CreateFile({'title': "activities.json", 'parents': [{'id': folder_id}]})
+file_drive.SetContentFile("activities.json")
+file_drive.Upload()
+print(f"✅ Base mise à jour et uploadée sur Drive ({len(activities)} activités).")
