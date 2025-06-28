@@ -7,6 +7,7 @@ import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from datetime import datetime
 
 # ----------------------------
 # Vérifier et rafraîchir le token Strava
@@ -54,7 +55,7 @@ drive_service = build('drive', 'v3', credentials=credentials)
 # ----------------------------
 # Config
 # ----------------------------
-FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'  # remplace par ton vrai ID Drive
+FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 activities = []
 existing_ids = set()
 
@@ -86,7 +87,7 @@ else:
     print("⚠️ Aucun activities.json sur Drive, on va en créer un nouveau.")
 
 # ----------------------------
-# Reconstruire les laps depuis les streams
+# Reconstruire les laps depuis les streams enrichis
 # ----------------------------
 activity_id_arg = int(sys.argv[1])
 
@@ -95,8 +96,15 @@ def process_activity(activity_id):
         print(f"✅ Activité {activity_id} déjà présente, on skip.")
         return
 
+    # Récupérer la date de l'activité
+    url_activity = f"https://www.strava.com/api/v3/activities/{activity_id}"
+    resp_activity = requests.get(url_activity, headers=headers)
+    activity_data = resp_activity.json()
+    start_date = activity_data.get("start_date_local")
+
+    # Récupérer les streams enrichis
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
-    params = {"keys": "time,distance,heartrate,cadence", "key_by_type": "true"}
+    params = {"keys": "time,distance,heartrate,cadence,velocity_smooth,altitude,temp,moving", "key_by_type": "true"}
     resp = requests.get(url_streams, params=params, headers=headers)
     streams = resp.json()
 
@@ -104,6 +112,10 @@ def process_activity(activity_id):
     distance = streams.get("distance", {}).get("data", [])
     heartrate = streams.get("heartrate", {}).get("data", [])
     cadence = streams.get("cadence", {}).get("data", [])
+    velocity = streams.get("velocity_smooth", {}).get("data", [])
+    altitude = streams.get("altitude", {}).get("data", [])
+    temp = streams.get("temp", {}).get("data", [])
+    moving = streams.get("moving", {}).get("data", [])
 
     if not time_data or not distance:
         print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
@@ -114,30 +126,41 @@ def process_activity(activity_id):
     lap_number = 1
     for i, d in enumerate(distance):
         if d - distance[lap_start_idx] >= 1000 or i == len(distance) -1:
+            slice_range = range(lap_start_idx, i+1)
             lap_dist = distance[i] - distance[lap_start_idx]
             lap_time = time_data[i] - time_data[lap_start_idx]
-            hr_lap = heartrate[lap_start_idx:i+1] if heartrate else []
-            cad_lap = cadence[lap_start_idx:i+1] if cadence else []
 
-            fc_avg = sum(hr_lap)/len(hr_lap) if hr_lap else None
-            fc_max = max(hr_lap) if hr_lap else None
-            cad_avg = sum(cad_lap)/len(cad_lap) if cad_lap else None
-            pace = (lap_time/60) / (lap_dist/1000) if lap_dist > 0 else None
+            hr_lap = [heartrate[j] for j in slice_range if heartrate and j < len(heartrate)]
+            cad_lap = [cadence[j] for j in slice_range if cadence and j < len(cadence)]
+            vel_lap = [velocity[j] for j in slice_range if velocity and j < len(velocity)]
+            alt_lap = [altitude[j] for j in slice_range if altitude and j < len(altitude)]
+            temp_lap = [temp[j] for j in slice_range if temp and j < len(temp)]
+            mov_lap = [moving[j] for j in slice_range if moving and j < len(moving)]
+
+            moving_time = sum(1 for m in mov_lap if m)
+            pace_moving = (moving_time / 60) / (lap_dist/1000) if lap_dist > 0 else None
+            avg_vel = sum(vel_lap)/len(vel_lap)*3.6 if vel_lap else None
+            pace_vel = 60 / avg_vel if avg_vel else None
+            gain_alt = alt_lap[-1] - alt_lap[0] if alt_lap else None
 
             laps.append({
                 "lap_number": lap_number,
                 "distance": lap_dist,
                 "duration": lap_time,
-                "fc_avg": fc_avg,
-                "fc_max": fc_max,
-                "cadence_avg": cad_avg,
-                "pace": pace
+                "fc_avg": sum(hr_lap)/len(hr_lap) if hr_lap else None,
+                "fc_max": max(hr_lap) if hr_lap else None,
+                "cadence_avg": sum(cad_lap)/len(cad_lap) if cad_lap else None,
+                "pace_velocity": pace_vel,
+                "pace_moving": pace_moving,
+                "temp_avg": sum(temp_lap)/len(temp_lap) if temp_lap else None,
+                "gain_alt": gain_alt
             })
             lap_start_idx = i
             lap_number +=1
 
     activities.append({
         "activity_id": activity_id,
+        "date": start_date,
         "laps": laps
     })
     existing_ids.add(activity_id)
@@ -160,9 +183,7 @@ if isinstance(latest_activities, list):
 else:
     print("⚠️ Erreur Strava: ", latest_activities)
 
-# ----------------------------
 # ➡️ Sauvegarder et uploader sur Drive
-# ----------------------------
 with open("activities.json", "w") as f:
     json.dump(activities, f, indent=2)
 
