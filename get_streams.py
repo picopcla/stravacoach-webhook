@@ -120,14 +120,20 @@ def process_activity(activity_id):
 # ----------------------------
 process_activity(activity_id_arg)
 
-# ➡️ 2. Vérifier les 100 dernières activités Strava
+# ➡️ 2. Vérifier les 100 dernières activités
 url = "https://www.strava.com/api/v3/athlete/activities"
 params = {"per_page": 100, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
-for act in latest_activities:
-    process_activity(act["id"])
+print("📥 Réponse brute Strava activities:", latest_activities)
+
+if isinstance(latest_activities, list):
+    for act in latest_activities:
+        process_activity(act["id"])
+else:
+    print("⚠️ Erreur Strava: ", latest_activities)
+
 
 # ----------------------------
 # ➡️ Sauvegarder et uploader sur Drive
