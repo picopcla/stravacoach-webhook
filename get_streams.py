@@ -9,7 +9,7 @@ from pydrive2.drive import GoogleDrive
 # Auth Google Drive
 # -----------------------
 gauth = GoogleAuth()
-gauth.LocalWebserverAuth()  # ouvre ton navigateur
+gauth.CommandLineAuth() # ouvre ton navigateur
 drive = GoogleDrive(gauth)
 
 # -----------------------
