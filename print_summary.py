@@ -1,4 +1,5 @@
 import json
+import os
 import io
 from datetime import datetime
 from google.oauth2 import service_account
@@ -6,10 +7,15 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # -------------------------
-# Auth Google Drive (via service_account.json local sécurisé)
+# Auth Google Drive : Render ou local
 # -------------------------
-with open('StravaCoach/security/service_account.json') as f:
-    service_account_info = json.load(f)
+try:
+    service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
+    print("✅ Auth via variable d'environnement (Render)")
+except KeyError:
+    with open('c:/StravaSecurity/service_account.json') as f:
+        service_account_info = json.load(f)
+    print("✅ Auth via fichier local (c:/StravaSecurity/service_account.json)")
 
 credentials = service_account.Credentials.from_service_account_info(
     service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
@@ -45,7 +51,7 @@ except json.decoder.JSONDecodeError:
     exit()
 
 # -------------------------
-# Afficher le résumé avec moving pace, velocity, alt, temp
+# Afficher le résumé enrichi
 # -------------------------
 for act in data:
     activity_id = act.get("activity_id", "-")
@@ -66,11 +72,9 @@ for act in data:
         fc_str = f"{lap.get('fc_avg', 0):.1f}" if lap.get('fc_avg') is not None else "-"
         fc_max_str = f"{lap.get('fc_max', 0):.1f}" if lap.get('fc_max') is not None else "-"
         cad_str = f"{lap.get('cadence_avg', 0):.1f}" if lap.get('cadence_avg') is not None else "-"
-        pace_mov = lap.get('pace_moving')
-        pace_vel = lap.get('pace_velocity')
-        temp_avg = lap.get('temp_avg')
-        gain_alt = lap.get('gain_alt')
 
+        # moving pace
+        pace_mov = lap.get('pace_moving')
         if pace_mov:
             pace_min = int(pace_mov)
             pace_sec = int((pace_mov - pace_min) * 60)
@@ -78,6 +82,8 @@ for act in data:
         else:
             pace_mov_str = "-"
 
+        # velocity_smooth pace
+        pace_vel = lap.get('pace_velocity')
         if pace_vel:
             pace_min = int(pace_vel)
             pace_sec = int((pace_vel - pace_min) * 60)
@@ -85,12 +91,11 @@ for act in data:
         else:
             pace_vel_str = "-"
 
-        temp_str = f"{temp_avg:.1f}°C" if temp_avg is not None else "-"
-        gain_alt_str = f"{gain_alt:.1f} m" if gain_alt is not None else "-"
+        temp_str = f"{lap.get('temp_avg', 0):.1f}°C" if lap.get('temp_avg') is not None else "-"
+        gain_alt_str = f"{lap.get('gain_alt', 0):.1f} m" if lap.get('gain_alt') is not None else "-"
 
         print(f"    Lap {lap.get('lap_number', '-')}: "
               f"{lap.get('distance',0)/1000:.2f} km en {lap.get('duration',0)/60:.1f} min"
-              f" | Moving pace: {pace_mov_str} | Vitesse pace: {pace_vel_str}"
+              f" | Moving: {pace_mov_str} | Vitesse: {pace_vel_str}"
               f" | FC moy: {fc_str} / max: {fc_max_str}"
-              f" | Cadence: {cad_str}"
-              f" | Δalt: {gain_alt_str} | Temp: {temp_str}")
+              f" | Cad: {cad_str} | Δalt: {gain_alt_str} | Temp: {temp_str}")
