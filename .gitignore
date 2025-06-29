@@ -1,4 +1,17 @@
+# Ignore les fichiers Python compilés
 *.pyc
 __pycache__/
+
+# Ignore tous les JSON sauf ceux explicitement whitelistes
 *.json
+
+# Mais garde ces JSON utiles (ton profil et ton manifest PWA)
 !profile.json
+!static/manifest.json
+
+# Ignore les éventuelles clefs et tokens Strava
+client_secrets.json
+strava_tokens.json
+
+# Ignore la clé Google service account même si elle traîne
+service_account.json
