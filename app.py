@@ -11,9 +11,6 @@ app = Flask(__name__)
 
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
-# -------------------------
-# Télécharge activities.json en mémoire depuis Google Drive
-# -------------------------
 def load_activities_from_drive():
     try:
         service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
@@ -43,18 +40,15 @@ def load_activities_from_drive():
     activities = json.loads(fh.read())
     return activities
 
-# -------------------------
-# Charge ton profil (âge, poids, events)
-# -------------------------
 def load_profile():
     with open('profile.json') as f:
         return json.load(f)
 
-# -------------------------
-# Calcule les stats pour le dernier run
-# -------------------------
 def compute_dashboard_data(activities, profile):
+    # 🔥 On trie explicitement pour être sûr
+    activities.sort(key=lambda x: x.get("date"))
     last_activity = activities[-1]
+
     laps = last_activity.get("laps", [])
     date_str = last_activity.get("date")
     run_date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
@@ -66,7 +60,6 @@ def compute_dashboard_data(activities, profile):
     fc_all = [lap.get("fc_avg") for lap in laps if lap.get("fc_avg") is not None]
     fc_moy = sum(fc_all) / len(fc_all) if fc_all else None
 
-    # sécurise fc_max
     fc_max_list = [lap.get("fc_max") for lap in laps if lap.get("fc_max") is not None]
     fc_max = max(fc_max_list) if fc_max_list else "-"
 
@@ -106,9 +99,6 @@ def compute_dashboard_data(activities, profile):
         "laps": laps
     }
 
-# -------------------------
-# Route principale
-# -------------------------
 @app.route("/")
 def index():
     activities = load_activities_from_drive()
