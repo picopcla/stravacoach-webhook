@@ -96,13 +96,11 @@ def process_activity(activity_id):
         print(f"✅ Activité {activity_id} déjà présente, on skip.")
         return
 
-    # Récupérer la date de l'activité
     url_activity = f"https://www.strava.com/api/v3/activities/{activity_id}"
     resp_activity = requests.get(url_activity, headers=headers)
     activity_data = resp_activity.json()
     start_date = activity_data.get("start_date_local")
 
-    # Récupérer les streams enrichis
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params = {"keys": "time,distance,heartrate,cadence,velocity_smooth,altitude,temp,moving", "key_by_type": "true"}
     resp = requests.get(url_streams, params=params, headers=headers)
@@ -171,13 +169,18 @@ def process_activity(activity_id):
 # ----------------------------
 process_activity(activity_id_arg)
 
-# ➡️ 2. Vérifier les 100 dernières activités
+# ➡️ 2. Vérifier les 100 dernières activités et nettoyer
 url = "https://www.strava.com/api/v3/athlete/activities"
 params = {"per_page": 100, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
 if isinstance(latest_activities, list):
+    # 🔥 Garder uniquement les activités qui existent toujours sur Strava
+    strava_ids = set(act["id"] for act in latest_activities)
+    activities = [a for a in activities if a["activity_id"] in strava_ids]
+
+    # Ajouter les nouvelles activités
     for act in latest_activities:
         process_activity(act["id"])
 else:
