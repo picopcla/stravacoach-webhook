@@ -15,7 +15,6 @@ FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 # Télécharge activities.json en mémoire depuis Google Drive
 # -------------------------
 def load_activities_from_drive():
-    # Auth
     try:
         service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
     except KeyError:
@@ -26,7 +25,6 @@ def load_activities_from_drive():
         service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
     drive_service = build('drive', 'v3', credentials=credentials)
 
-    # Cherche le fichier
     results = drive_service.files().list(
         q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
         spaces='drive', fields='files(id, name)').execute()
@@ -35,7 +33,6 @@ def load_activities_from_drive():
         return None
     file_id = files[0]['id']
 
-    # Télécharge en mémoire
     request = drive_service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
@@ -47,7 +44,7 @@ def load_activities_from_drive():
     return activities
 
 # -------------------------
-# Charge ton profile local (âge, poids, events)
+# Charge ton profil (âge, poids, events)
 # -------------------------
 def load_profile():
     with open('profile.json') as f:
@@ -68,7 +65,10 @@ def compute_dashboard_data(activities, profile):
 
     fc_all = [lap.get("fc_avg") for lap in laps if lap.get("fc_avg") is not None]
     fc_moy = sum(fc_all) / len(fc_all) if fc_all else None
-    fc_max = max(lap.get("fc_max") for lap in laps if lap.get("fc_max") is not None)
+
+    # sécurise fc_max
+    fc_max_list = [lap.get("fc_max") for lap in laps if lap.get("fc_max") is not None]
+    fc_max = max(fc_max_list) if fc_max_list else "-"
 
     half = len(laps) // 2
     fc_first = [lap.get("fc_avg") for lap in laps[:half] if lap.get("fc_avg") is not None]
@@ -93,7 +93,7 @@ def compute_dashboard_data(activities, profile):
         "duration_min": round(total_time,1),
         "allure": f"{int(allure_moy)}:{int((allure_moy - int(allure_moy))*60):02d}" if allure_moy else "-",
         "fc_moy": round(fc_moy,1) if fc_moy else "-",
-        "fc_max": fc_max if fc_max else "-",
+        "fc_max": fc_max,
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
@@ -119,4 +119,4 @@ def index():
     return render_template("index.html", dashboard=dashboard)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
