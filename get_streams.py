@@ -171,7 +171,7 @@ process_activity(activity_id_arg)
 
 # ➡️ 2. Vérifier les 100 dernières activités et nettoyer
 url = "https://www.strava.com/api/v3/athlete/activities"
-params = {"per_page": 100, "page": 1}
+params = {"per_page": 10, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
