@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mon Coach Running</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/static/service-worker.js')
+          .then(() => console.log('Service Worker enregistré'))
+          .catch((err) => console.log('Erreur SW', err));
+      }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
@@ -79,6 +87,7 @@ new Chart(ctx, {
         ]
     },
     options: {
+        responsive: true,
         scales: {
             y1: { type: 'linear', position: 'left', title: { display: true, text: 'FC (bpm)' } },
             y2: { type: 'linear', position: 'right', title: { display: true, text: 'Allure min/km' } },
