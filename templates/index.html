@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mon Coach Running</title>
     <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" href="/static/icons/icon-192.png">
     <script>
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/static/service-worker.js')
@@ -14,87 +15,78 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-        h1 { color: #2e8b57; }
+        body { font-family: sans-serif; padding: 20px; max-width: 700px; margin: auto; background: #fff; }
+        .header {
+            display: flex;
+            align-items: center;
+            background: linear-gradient(to bottom, orange, #ff9900);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .header img {
+            height: 40px;
+            margin-right: 15px;
+        }
+        h1 { margin: 0; font-size: 1.8em; }
         .section { margin: 20px 0; }
+        table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+        td, th { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f4f4f4; }
+        a { color: #2e8b57; text-decoration: none; }
     </style>
 </head>
 <body>
 
-<h1>🏃 Mon Coach Running</h1>
+<div class="header">
+    <img src="/static/icons/icon-192.png" alt="App Icon">
+    <h1>Mon Coach Running</h1>
+</div>
+
+<p><a href="/profile">⚙ Modifier mon profil</a></p>
 
 <div class="section">
     <h2>Dernier run ({{ dashboard.date }})</h2>
-    <p>
-        📏 {{ dashboard.distance_km }} km en {{ dashboard.duration_min }} min 
-        | allure {{ dashboard.allure }}/km
-    </p>
-    <p>
-        🫀 FC moy: {{ dashboard.fc_moy }} | FC max: {{ dashboard.fc_max }} 
-        | k: {{ dashboard.k_moy }} 
-        | dérive: +{{ dashboard.deriv_cardio }}%
-        | Δalt: +{{ dashboard.gain_alt }} m
-    </p>
+    <table>
+        <tr>
+            <th>Distance</th><th>Durée</th><th>Allure</th><th>FC Moy</th><th>FC Max</th>
+        </tr>
+        <tr>
+            <td>{{ dashboard.distance_km }} km</td>
+            <td>{{ dashboard.duration_min }} min</td>
+            <td>{{ dashboard.allure }}/km</td>
+            <td>{{ dashboard.fc_moy }} bpm</td>
+            <td>{{ dashboard.fc_max }} bpm</td>
+        </tr>
+    </table>
 </div>
 
-{% if dashboard.events_recent %}
 <div class="section">
-    <h3>🩹 Événements récents</h3>
-    <ul>
-        {% for e in dashboard.events_recent %}
-        <li>il y a {{ e.days_ago }} jours : {{ e.note }}</li>
-        {% endfor %}
-    </ul>
-</div>
-{% endif %}
-
-<div class="section">
-    <h3>📈 FC, allure et k par lap</h3>
-    <canvas id="chart"></canvas>
+    <canvas id="myChart" height="200"></canvas>
 </div>
 
 <script>
-const laps = {{ dashboard.laps|tojson }};
-const labels = laps.map(l => `Lap ${l.lap_number}`);
-const fcData = laps.map(l => l.fc_avg ? l.fc_avg.toFixed(1) : null);
-const paceData = laps.map(l => l.pace_velocity ? l.pace_velocity.toFixed(2) : null);
-const kData = laps.map(l => (l.fc_avg && l.pace_velocity) ? (l.fc_avg / l.pace_velocity).toFixed(1) : null);
-
-const ctx = document.getElementById('chart').getContext('2d');
-new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: labels,
-        datasets: [
-            {
-                label: 'FC moy',
-                data: fcData,
-                borderColor: 'red',
-                yAxisID: 'y1'
-            },
-            {
-                label: 'Allure (pace)',
-                data: paceData,
-                borderColor: 'blue',
-                yAxisID: 'y2'
-            },
-            {
-                label: 'k (FC/Allure)',
-                data: kData,
-                borderColor: 'green',
-                yAxisID: 'y3'
+    var ctx = document.getElementById('myChart').getContext('2d');
+    var chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ dashboard.dates }},
+            datasets: [{
+                label: 'Allure',
+                data: {{ dashboard.paces }},
+                fill: false,
+                borderColor: '#2e8b57',
+                tension: 0.4  // <== courbe lissée
+            }]
+        },
+        options: {
+            scales: {
+                x: { display: true },
+                y: { beginAtZero: false }
             }
-        ]
-    },
-    options: {
-        responsive: true,
-        scales: {
-            y1: { type: 'linear', position: 'left', title: { display: true, text: 'FC (bpm)' } },
-            y2: { type: 'linear', position: 'right', title: { display: true, text: 'Allure min/km' } },
-            y3: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'k' } }
         }
-    }
-});
+    });
 </script>
 
 </body>
