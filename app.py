@@ -1,27 +1,34 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request, redirect
 import json
 import io
 import os
 from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 app = Flask(__name__)
 
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
+# -------------------
+# Initialisation Google Drive
+# -------------------
+try:
+    service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
+except KeyError:
+    with open('c:/StravaSecurity/service_account.json') as f:
+        service_account_info = json.load(f)
+
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
+drive_service = build('drive', 'v3', credentials=credentials)
+globals()['drive_service'] = drive_service
+
+# -------------------
+# Fonctions helpers
+# -------------------
 def load_activities_from_drive():
-    try:
-        service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
-    except KeyError:
-        with open('c:/StravaSecurity/service_account.json') as f:
-            service_account_info = json.load(f)
-
-    credentials = service_account.Credentials.from_service_account_info(
-        service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
-    drive_service = build('drive', 'v3', credentials=credentials)
-
     results = drive_service.files().list(
         q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
         spaces='drive', fields='files(id, name)').execute()
@@ -30,25 +37,58 @@ def load_activities_from_drive():
         return None
     file_id = files[0]['id']
 
-    request = drive_service.files().get_media(fileId=file_id)
+    request_file = drive_service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
+    downloader = MediaIoBaseDownload(fh, request_file)
     done = False
     while not done:
         status, done = downloader.next_chunk()
     fh.seek(0)
-    activities = json.loads(fh.read())
-    return activities
+    return json.loads(fh.read())
 
-def load_profile():
-    with open('profile.json') as f:
-        return json.load(f)
+def load_profile_from_drive():
+    results = drive_service.files().list(
+        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+        spaces='drive', fields='files(id, name)').execute()
+    files = results.get('files', [])
+    profile = {"birth_date": "", "weight": 0, "events": []}
+    if files:
+        file_id = files[0]['id']
+        request_dl = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_dl)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        with open('profile.json', 'wb') as f:
+            f.write(fh.read())
+        with open('profile.json') as f:
+            profile = json.load(f)
+    return profile
 
+def save_profile_to_drive(profile):
+    with open('profile.json', 'w') as f:
+        json.dump(profile, f, indent=2)
+    results = drive_service.files().list(
+        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+        spaces='drive', fields='files(id, name)').execute()
+    files = results.get('files', [])
+    if files:
+        file_id = files[0]['id']
+        media = MediaFileUpload('profile.json', mimetype='application/json')
+        drive_service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
+        media = MediaFileUpload('profile.json', mimetype='application/json')
+        drive_service.files().create(body=file_metadata, media_body=media).execute()
+
+# -------------------
+# Dashboard principal
+# -------------------
 def compute_dashboard_data(activities, profile):
-    # 🔥 On trie explicitement pour être sûr
     activities.sort(key=lambda x: x.get("date"))
     last_activity = activities[-1]
-
     laps = last_activity.get("laps", [])
     date_str = last_activity.get("date")
     run_date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
@@ -73,13 +113,6 @@ def compute_dashboard_data(activities, profile):
     k_moy = sum(k_all) / len(k_all) if k_all else None
     gain_alt = sum(abs(lap.get("gain_alt", 0)) for lap in laps if lap.get("gain_alt") is not None)
 
-    events_recent = []
-    for event in profile.get("events", []):
-        event_date = datetime.strptime(event.get("date"), "%Y-%m-%d")
-        delta_days = (run_date - event_date).days
-        if 0 <= delta_days <=7:
-            events_recent.append({"days_ago": delta_days, "note": event.get("note")})
-
     return {
         "date": run_date.strftime("%Y-%m-%d"),
         "distance_km": round(total_dist,2),
@@ -90,67 +123,21 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "profile": {
-            "age": profile.get("age"),
-            "poids": profile.get("poids"),
-            "objectifs": profile.get("objectifs")
-        },
-        "events_recent": events_recent,
-        "laps": laps
+        "dates": json.dumps([lap.get("lap_number") for lap in laps]),
+        "paces": json.dumps([lap.get("pace_velocity") for lap in laps])
     }
 
+# -------------------
+# Routes Flask
+# -------------------
 @app.route("/")
 def index():
     activities = load_activities_from_drive()
     if not activities:
         return "❌ Aucun activities.json trouvé sur ton Drive."
-    profile = load_profile()
+    profile = load_profile_from_drive()
     dashboard = compute_dashboard_data(activities, profile)
     return render_template("index.html", dashboard=dashboard)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
-
-from flask import request, redirect
-
-def load_profile_from_drive():
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-        spaces='drive', fields='files(id, name)').execute()
-    files = results.get('files', [])
-
-    profile = {"birth_date": "", "weight": 0, "events": []}
-    if files:
-        file_id = files[0]['id']
-        request_dl = drive_service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request_dl)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        fh.seek(0)
-        with open('profile.json', 'wb') as f:
-            f.write(fh.read())
-        with open('profile.json') as f:
-            profile = json.load(f)
-    return profile
-
-def save_profile_to_drive(profile):
-    with open('profile.json', 'w') as f:
-        json.dump(profile, f, indent=2)
-    # Upload sur Drive
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-        spaces='drive', fields='files(id, name)').execute()
-    files = results.get('files', [])
-    if files:
-        file_id = files[0]['id']
-        media = MediaFileUpload('profile.json', mimetype='application/json')
-        drive_service.files().update(fileId=file_id, media_body=media).execute()
-    else:
-        file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
-        media = MediaFileUpload('profile.json', mimetype='application/json')
-        drive_service.files().create(body=file_metadata, media_body=media).execute()
 
 @app.route('/profile', methods=['GET', 'POST'])
 def profile():
@@ -168,3 +155,6 @@ def profile():
         save_profile_to_drive(profile)
         return redirect('/profile')
     return render_template('profile.html', profile=profile)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
