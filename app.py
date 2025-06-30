@@ -110,3 +110,61 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+
+from flask import request, redirect
+
+def load_profile_from_drive():
+    results = drive_service.files().list(
+        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+        spaces='drive', fields='files(id, name)').execute()
+    files = results.get('files', [])
+
+    profile = {"birth_date": "", "weight": 0, "events": []}
+    if files:
+        file_id = files[0]['id']
+        request_dl = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_dl)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        with open('profile.json', 'wb') as f:
+            f.write(fh.read())
+        with open('profile.json') as f:
+            profile = json.load(f)
+    return profile
+
+def save_profile_to_drive(profile):
+    with open('profile.json', 'w') as f:
+        json.dump(profile, f, indent=2)
+    # Upload sur Drive
+    results = drive_service.files().list(
+        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+        spaces='drive', fields='files(id, name)').execute()
+    files = results.get('files', [])
+    if files:
+        file_id = files[0]['id']
+        media = MediaFileUpload('profile.json', mimetype='application/json')
+        drive_service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
+        media = MediaFileUpload('profile.json', mimetype='application/json')
+        drive_service.files().create(body=file_metadata, media_body=media).execute()
+
+@app.route('/profile', methods=['GET', 'POST'])
+def profile():
+    profile = load_profile_from_drive()
+    if request.method == 'POST':
+        profile['birth_date'] = request.form['birth_date']
+        profile['weight'] = float(request.form['weight'])
+        events = []
+        event_dates = request.form.getlist('event_date')
+        event_names = request.form.getlist('event_name')
+        for date, name in zip(event_dates, event_names):
+            if date and name:
+                events.append({"date": date, "name": name})
+        profile['events'] = events
+        save_profile_to_drive(profile)
+        return redirect('/profile')
+    return render_template('profile.html', profile=profile)
