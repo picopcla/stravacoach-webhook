@@ -165,8 +165,11 @@ def index():
 def profile():
     profile = load_profile_from_drive()
     if request.method == 'POST':
-        profile['birth_date'] = request.form['birth_date']
-        profile['weight'] = float(request.form['weight'])
+        profile['birth_date'] = request.form.get('birth_date', "")
+        try:
+            profile['weight'] = float(request.form.get('weight', 0) or 0)
+        except (ValueError, TypeError):
+            profile['weight'] = 0
         events = []
         event_dates = request.form.getlist('event_date')
         event_names = request.form.getlist('event_name')
