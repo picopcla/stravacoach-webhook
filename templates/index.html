@@ -1,93 +1,137 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mon Coach Running</title>
-    <link rel="manifest" href="/static/manifest.json">
-    <link rel="icon" href="/static/icons/icon-192.png">
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/static/service-worker.js')
-          .then(() => console.log('Service Worker enregistré'))
-          .catch((err) => console.log('Erreur SW', err));
-      }
-    </script>
+    <link rel="manifest" href="/static/manifest.json" />
+    <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 700px; margin: auto; background: #fff; }
-        .header {
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f9f9f9;
+        }
+        header {
             display: flex;
             align-items: center;
-            background: linear-gradient(to bottom, orange, #ff9900);
+            background: linear-gradient(to bottom, #ff7f00, #ff9900);
             color: white;
-            padding: 10px 20px;
-            border-radius: 8px;
+            padding: 10px;
+        }
+        header img {
+            width: 40px;
+            height: 40px;
+            margin-right: 10px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
             margin-bottom: 20px;
         }
-        .header img {
-            height: 40px;
-            margin-right: 15px;
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        h1 { margin: 0; font-size: 1.8em; }
-        .section { margin: 20px 0; }
-        table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-        td, th { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f4f4f4; }
-        a { color: #2e8b57; text-decoration: none; }
+        .flash {
+            background: #28a745;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+        }
     </style>
 </head>
 <body>
+    <header>
+        <img src="/static/icons/icon-192.png" alt="logo" />
+        <h1>Mon Coach Running</h1>
+    </header>
 
-<div class="header">
-    <img src="/static/icons/icon-192.png" alt="App Icon">
-    <h1>Mon Coach Running</h1>
-</div>
+    <div class="container">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash">
+                {{ messages[0] }}
+            </div>
+          {% endif %}
+        {% endwith %}
 
-<p><a href="/profile">⚙ Modifier mon profil</a></p>
+        <div class="dashboard">
+            <div class="card">
+                <strong>Date</strong><br>{{ dashboard.date }}
+            </div>
+            <div class="card">
+                <strong>Distance</strong><br>{{ dashboard.distance_km }} km
+            </div>
+            <div class="card">
+                <strong>Durée</strong><br>{{ dashboard.duration_min }} min
+            </div>
+            <div class="card">
+                <strong>Allure</strong><br>{{ dashboard.allure }} min/km
+            </div>
+            <div class="card">
+                <strong>FC Moy</strong><br>{{ dashboard.fc_moy }}
+            </div>
+            <div class="card">
+                <strong>FC Max</strong><br>{{ dashboard.fc_max }}
+            </div>
+            <div class="card">
+                <strong>k Moy</strong><br>{{ dashboard.k_moy }}
+            </div>
+            <div class="card">
+                <strong>Deriv Cardio</strong><br>{{ dashboard.deriv_cardio }}%
+            </div>
+            <div class="card">
+                <strong>D+/-</strong><br>{{ dashboard.gain_alt }} m
+            </div>
+        </div>
 
-<div class="section">
-    <h2>Dernier run ({{ dashboard.date }})</h2>
-    <table>
-        <tr>
-            <th>Distance</th><th>Durée</th><th>Allure</th><th>FC Moy</th><th>FC Max</th>
-        </tr>
-        <tr>
-            <td>{{ dashboard.distance_km }} km</td>
-            <td>{{ dashboard.duration_min }} min</td>
-            <td>{{ dashboard.allure }}/km</td>
-            <td>{{ dashboard.fc_moy }} bpm</td>
-            <td>{{ dashboard.fc_max }} bpm</td>
-        </tr>
-    </table>
-</div>
+        <canvas id="paceChart"></canvas>
+    </div>
 
-<div class="section">
-    <canvas id="myChart" height="200"></canvas>
-</div>
-
-<script>
-    var ctx = document.getElementById('myChart').getContext('2d');
-    var chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: {{ dashboard.dates }},
-            datasets: [{
-                label: 'Allure',
-                data: {{ dashboard.paces }},
-                fill: false,
-                borderColor: '#2e8b57',
-                tension: 0.4  // <== courbe lissée
-            }]
-        },
-        options: {
-            scales: {
-                x: { display: true },
-                y: { beginAtZero: false }
+    <script>
+        const ctx = document.getElementById('paceChart').getContext('2d');
+        const paceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: {{ dashboard.dates | safe }},
+                datasets: [{
+                    label: 'Allure (m/s)',
+                    data: {{ dashboard.paces | safe }},
+                    borderColor: '#ff7f00',
+                    tension: 0.3,
+                    fill: false,
+                    pointRadius: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Lap' } },
+                    y: { title: { display: true, text: 'Vitesse m/s' } }
+                }
             }
-        }
-    });
-</script>
-
+        });
+    </script>
 </body>
 </html>
+
