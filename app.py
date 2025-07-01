@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, flash
 import json
 import io
 import os
@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 app = Flask(__name__)
+app.secret_key = 'ma_super_secret_key_change_moi'
 
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
@@ -129,57 +130,4 @@ def compute_dashboard_data(activities, profile):
     fc_second = [lap.get("fc_avg") for lap in laps[half:] if lap.get("fc_avg") is not None]
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first)) / sum(fc_first)/len(fc_first)*100) if fc_first and fc_second else None
 
-    k_all = [(lap.get("fc_avg") / (lap.get("pace_velocity") if lap.get("pace_velocity") else 1)) 
-              for lap in laps if lap.get("fc_avg") is not None and lap.get("pace_velocity")]
-    k_moy = sum(k_all) / len(k_all) if k_all else None
-    gain_alt = sum(abs(lap.get("gain_alt", 0)) for lap in laps if lap.get("gain_alt") is not None)
-
-    return {
-        "date": run_date.strftime("%Y-%m-%d"),
-        "distance_km": round(total_dist,2),
-        "duration_min": round(total_time,1),
-        "allure": f"{int(allure_moy)}:{int((allure_moy - int(allure_moy))*60):02d}" if allure_moy else "-",
-        "fc_moy": round(fc_moy,1) if fc_moy else "-",
-        "fc_max": fc_max,
-        "k_moy": round(k_moy,1) if k_moy else "-",
-        "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
-        "gain_alt": round(gain_alt,1),
-        "dates": json.dumps([lap.get("lap_number") for lap in laps]),
-        "paces": json.dumps([lap.get("pace_velocity") for lap in laps]),
-        "fc_avg": json.dumps([lap.get("fc_avg") for lap in laps])
-    }
-
-# -------------------
-# Routes Flask
-# -------------------
-@app.route("/")
-def index():
-    activities = load_activities_from_drive()
-    if not activities:
-        return "❌ Aucun activities.json trouvé sur ton Drive."
-    profile = load_profile_from_drive()
-    dashboard = compute_dashboard_data(activities, profile)
-    return render_template("index.html", dashboard=dashboard)
-
-@app.route('/profile', methods=['GET', 'POST'])
-def profile():
-    profile = load_profile_from_drive()
-    if request.method == 'POST':
-        profile['birth_date'] = request.form.get('birth_date', "")
-        try:
-            profile['weight'] = float(request.form.get('weight', 0) or 0)
-        except (ValueError, TypeError):
-            profile['weight'] = 0
-        events = []
-        event_dates = request.form.getlist('event_date')
-        event_names = request.form.getlist('event_name')
-        for date, name in zip(event_dates, event_names):
-            if date and name:
-                events.append({"date": date, "name": name})
-        profile['events'] = events
-        save_profile_to_drive(profile)
-        return redirect('/profile')
-    return render_template('profile.html', profile=profile)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+    k_all = [(lap.get("fc_avg")_]()_
