@@ -1,137 +1,82 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mon Coach Running</title>
-    <link rel="manifest" href="/static/manifest.json" />
-    <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StravaCoach Dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            background: #f9f9f9;
-        }
-        header {
-            display: flex;
-            align-items: center;
-            background: linear-gradient(to bottom, #ff7f00, #ff9900);
-            color: white;
             padding: 10px;
-        }
-        header img {
-            width: 40px;
-            height: 40px;
-            margin-right: 10px;
-        }
-        .container {
-            max-width: 800px;
+            max-width: 600px;
             margin: auto;
-            padding: 20px;
         }
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            margin-bottom: 20px;
+        h1, h2 {
+            text-align: center;
         }
-        .card {
-            background: white;
-            border-radius: 8px;
+        .stats {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .stat {
+            flex: 1 0 45%;
+            background: #f0f0f0;
+            margin: 5px;
             padding: 15px;
+            border-radius: 8px;
             text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .flash {
-            background: #28a745;
-            color: white;
-            padding: 10px;
+        a {
+            display: block;
             text-align: center;
-            margin-bottom: 10px;
-            border-radius: 5px;
-        }
-        canvas {
-            width: 100% !important;
-            height: auto !important;
+            margin: 20px;
+            font-size: 18px;
+            text-decoration: none;
+            color: #007bff;
         }
     </style>
 </head>
 <body>
-    <header>
-        <img src="/static/icons/icon-192.png" alt="logo" />
-        <h1>Mon Coach Running</h1>
-    </header>
+    <h1>🏃 StravaCoach</h1>
 
-    <div class="container">
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            <div class="flash">
-                {{ messages[0] }}
-            </div>
-          {% endif %}
-        {% endwith %}
-
-        <div class="dashboard">
-            <div class="card">
-                <strong>Date</strong><br>{{ dashboard.date }}
-            </div>
-            <div class="card">
-                <strong>Distance</strong><br>{{ dashboard.distance_km }} km
-            </div>
-            <div class="card">
-                <strong>Durée</strong><br>{{ dashboard.duration_min }} min
-            </div>
-            <div class="card">
-                <strong>Allure</strong><br>{{ dashboard.allure }} min/km
-            </div>
-            <div class="card">
-                <strong>FC Moy</strong><br>{{ dashboard.fc_moy }}
-            </div>
-            <div class="card">
-                <strong>FC Max</strong><br>{{ dashboard.fc_max }}
-            </div>
-            <div class="card">
-                <strong>k Moy</strong><br>{{ dashboard.k_moy }}
-            </div>
-            <div class="card">
-                <strong>Deriv Cardio</strong><br>{{ dashboard.deriv_cardio }}%
-            </div>
-            <div class="card">
-                <strong>D+/-</strong><br>{{ dashboard.gain_alt }} m
-            </div>
-        </div>
-
-        <canvas id="paceChart"></canvas>
+    <div class="stats">
+        <div class="stat">📅 Date : {{ dashboard.date }}</div>
+        <div class="stat">📏 Distance : {{ dashboard.distance_km }} km</div>
+        <div class="stat">⏱ Temps : {{ dashboard.duration_min }} min</div>
+        <div class="stat">🚀 Allure : {{ dashboard.allure }}</div>
+        <div class="stat">❤️ FC Moy : {{ dashboard.fc_moy }}</div>
+        <div class="stat">💥 FC Max : {{ dashboard.fc_max }}</div>
+        <div class="stat">⚡ k Moy : {{ dashboard.k_moy }}</div>
+        <div class="stat">📈 Dérive : {{ dashboard.deriv_cardio }}%</div>
+        <div class="stat">⛰ Gain Alt : {{ dashboard.gain_alt }} m</div>
     </div>
 
+    <canvas id="paceChart" width="400" height="200"></canvas>
+
+    <a href="/profile">🔧 Modifier Profil</a>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const ctx = document.getElementById('paceChart').getContext('2d');
-        const paceChart = new Chart(ctx, {
+        new Chart(ctx, {
             type: 'line',
             data: {
-                labels: {{ dashboard.dates | safe }},
+                labels: {{ dashboard.dates }},
                 datasets: [{
                     label: 'Allure (m/s)',
-                    data: {{ dashboard.paces | safe }},
-                    borderColor: '#ff7f00',
-                    tension: 0.3,
-                    fill: false,
-                    pointRadius: 2
+                    data: {{ dashboard.paces }},
+                    borderWidth: 2
                 }]
             },
             options: {
                 responsive: true,
-                plugins: {
-                    legend: { display: false }
-                },
                 scales: {
-                    x: { title: { display: true, text: 'Lap' } },
-                    y: { title: { display: true, text: 'Vitesse m/s' } }
+                    y: { beginAtZero: true }
                 }
             }
         });
     </script>
 </body>
 </html>
-
