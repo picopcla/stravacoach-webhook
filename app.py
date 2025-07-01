@@ -29,31 +29,47 @@ globals()['drive_service'] = drive_service
 # Fonctions helpers
 # -------------------
 def load_activities_from_drive():
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
-        spaces='drive', fields='files(id, name)').execute()
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
+            spaces='drive', fields='files(id, name)').execute()
+    except Exception as e:
+        print("😥 Erreur connexion Google Drive (activities):", e)
+        return None
+
     files = results.get('files', [])
     if not files:
         return None
-    file_id = files[0]['id']
 
-    request_file = drive_service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request_file)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    fh.seek(0)
-    return json.loads(fh.read())
+    file_id = files[0]['id']
+    try:
+        request_file = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_file)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        return json.loads(fh.read())
+    except Exception as e:
+        print("😥 Erreur download fichier activities.json:", e)
+        return None
 
 def load_profile_from_drive():
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-        spaces='drive', fields='files(id, name)').execute()
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+            spaces='drive', fields='files(id, name)').execute()
+    except Exception as e:
+        print("😥 Erreur connexion Google Drive (profile):", e)
+        return {"birth_date": "", "weight": 0, "events": []}
+
     files = results.get('files', [])
-    profile = {"birth_date": "", "weight": 0, "events": []}
-    if files:
-        file_id = files[0]['id']
+    if not files:
+        return {"birth_date": "", "weight": 0, "events": []}
+
+    file_id = files[0]['id']
+    try:
         request_dl = drive_service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request_dl)
@@ -64,24 +80,29 @@ def load_profile_from_drive():
         with open('profile.json', 'wb') as f:
             f.write(fh.read())
         with open('profile.json') as f:
-            profile = json.load(f)
-    return profile
+            return json.load(f)
+    except Exception as e:
+        print("😥 Erreur download profile.json:", e)
+        return {"birth_date": "", "weight": 0, "events": []}
 
 def save_profile_to_drive(profile):
     with open('profile.json', 'w') as f:
         json.dump(profile, f, indent=2)
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-        spaces='drive', fields='files(id, name)').execute()
-    files = results.get('files', [])
-    if files:
-        file_id = files[0]['id']
-        media = MediaFileUpload('profile.json', mimetype='application/json')
-        drive_service.files().update(fileId=file_id, media_body=media).execute()
-    else:
-        file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
-        media = MediaFileUpload('profile.json', mimetype='application/json')
-        drive_service.files().create(body=file_metadata, media_body=media).execute()
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+            spaces='drive', fields='files(id, name)').execute()
+        files = results.get('files', [])
+        if files:
+            file_id = files[0]['id']
+            media = MediaFileUpload('profile.json', mimetype='application/json')
+            drive_service.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
+            media = MediaFileUpload('profile.json', mimetype='application/json')
+            drive_service.files().create(body=file_metadata, media_body=media).execute()
+    except Exception as e:
+        print("😥 Erreur upload profile.json:", e)
 
 # -------------------
 # Dashboard principal
@@ -124,7 +145,8 @@ def compute_dashboard_data(activities, profile):
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
         "dates": json.dumps([lap.get("lap_number") for lap in laps]),
-        "paces": json.dumps([lap.get("pace_velocity") for lap in laps])
+        "paces": json.dumps([lap.get("pace_velocity") for lap in laps]),
+        "fc_avg": json.dumps([lap.get("fc_avg") for lap in laps])
     }
 
 # -------------------
