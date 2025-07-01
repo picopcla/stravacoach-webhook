@@ -2,90 +2,100 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Profil</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profil</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; max-width: 600px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        table, th, td { border: 1px solid #ccc; }
-        th, td { padding: 8px; text-align: left; }
-        button { padding: 5px 10px; margin-top: 10px; }
+        body {
+            font-family: Arial, sans-serif;
+            padding: 10px;
+            max-width: 500px;
+            margin: auto;
+        }
+        h1 {
+            text-align: center;
+        }
+        form {
+            margin-top: 20px;
+        }
+        label, input, table {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        table {
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #999;
+            padding: 8px;
+            text-align: left;
+        }
+        input[type="submit"], a.button {
+            background: #007bff;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            display: block;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
     </style>
 </head>
 <body>
-    <h2>Profil</h2>
-    <form id="profileForm" method="POST">
-        <label>Date de naissance :</label>
-        <input type="date" name="birth_date" id="birth_date" value="{{ profile.birth_date }}">
-        <span id="ageDisplay"></span><br><br>
+    <h1>🔧 Mon Profil</h1>
 
-        <label>Poids (kg) :</label>
-        <input type="number" step="0.1" name="weight" value="{{ profile.weight }}"><br><br>
+    <form method="POST">
+        <label for="birth_date">Date de naissance :</label>
+        <input type="date" name="birth_date" id="birth_date" value="{{ profile.birth_date }}" required>
+
+        <label for="age">Âge calculé :</label>
+        <input type="text" id="age" readonly>
+
+        <label for="weight">Poids (kg) :</label>
+        <input type="number" step="0.1" name="weight" id="weight" value="{{ profile.weight }}">
 
         <h3>Événements à venir</h3>
         <table id="eventsTable">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Nom</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for event in profile.events %}
-                <tr>
-                    <td><input type="date" name="event_date" value="{{ event.date }}"></td>
-                    <td><input type="text" name="event_name" value="{{ event.name }}"></td>
-                    <td><button type="button" onclick="removeRow(this)">🗑</button></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <button type="button" onclick="addRow()">+ Ajouter événement</button><br><br>
-
-        <button type="submit">Enregistrer</button>
-    </form>
-
-    <script>
-        function addRow() {
-            const table = document.getElementById("eventsTable").getElementsByTagName('tbody')[0];
-            const row = table.insertRow();
-            row.innerHTML = `
+            <tr>
+                <th>Date</th>
+                <th>Nom</th>
+            </tr>
+            {% for event in profile.events %}
+            <tr>
+                <td><input type="date" name="event_date" value="{{ event.date }}"></td>
+                <td><input type="text" name="event_name" value="{{ event.name }}"></td>
+            </tr>
+            {% endfor %}
+            <tr>
                 <td><input type="date" name="event_date"></td>
                 <td><input type="text" name="event_name"></td>
-                <td><button type="button" onclick="removeRow(this)">🗑</button></td>
-            `;
-        }
+            </tr>
+        </table>
+        
+        <input type="submit" value="💾 Enregistrer">
+    </form>
 
-        function removeRow(btn) {
-            btn.parentNode.parentNode.remove();
-        }
+    <a href="/" class="button">🏠 Retour Dashboard</a>
 
-        function calcAge() {
-            const birth = document.getElementById('birth_date').value;
-            const ageDisplay = document.getElementById('ageDisplay');
-            if (birth) {
-                const birthDate = new Date(birth);
+    <script>
+        function calculateAge() {
+            const birthDate = document.getElementById('birth_date').value;
+            if (birthDate) {
                 const today = new Date();
-                let age = today.getFullYear() - birthDate.getFullYear();
-                const m = today.getMonth() - birthDate.getMonth();
-                if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                const birth = new Date(birthDate);
+                let age = today.getFullYear() - birth.getFullYear();
+                const m = today.getMonth() - birth.getMonth();
+                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
                     age--;
                 }
-                ageDisplay.textContent = `(${age} ans)`;
+                document.getElementById('age').value = age + ' ans';
             } else {
-                ageDisplay.textContent = '';
+                document.getElementById('age').value = '';
             }
         }
-
-        document.getElementById('birth_date').addEventListener('input', calcAge);
-        window.onload = calcAge;
-
-        // message après POST
-        {% if saved %}
-        alert("✅ Profil enregistré !");
-        window.location.href = "/";
-        {% endif %}
+        document.getElementById('birth_date').addEventListener('change', calculateAge);
+        window.onload = calculateAge;
     </script>
 </body>
 </html>
