@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, flash
+from flask import Flask, render_template, request, redirect
 import json
 import io
 import os
@@ -8,7 +8,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 app = Flask(__name__)
-app.secret_key = 'ma_super_secret_key_change_moi'
 
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
@@ -176,9 +175,8 @@ def profile():
                 events.append({"date": date, "name": name})
         profile['events'] = events
         save_profile_to_drive(profile)
-        flash("✅ Profil enregistré !")
-        return redirect('/')
-    return render_template('profile.html', profile=profile)
+        return render_template('profile.html', profile=profile, saved=True)
+    return render_template('profile.html', profile=profile, saved=False)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
