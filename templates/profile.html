@@ -2,36 +2,98 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Mon Profil Running</title>
+    <title>Mon Profil</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; }
-        input, button { margin: 5px 0; display: block; }
+        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 10px; }
+        .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+        .row label { min-width: 150px; }
+        .row input[type="date"],
+        .row input[type="number"] { flex: 1; padding: 5px; }
+        .age-display { margin-left: 15px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        table th, table td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+        table th { background: #eee; }
+        .add-btn { margin-top: 10px; }
+        .save-btn { margin-top: 20px; padding: 10px 20px; font-size: 1em; }
     </style>
 </head>
 <body>
-<h1>🏃 Mon Profil Running</h1>
 
-<form method="POST">
-    <label>Date de naissance :</label>
-    <input type="date" name="birth_date" value="{{ profile.birth_date }}">
+    <h2>Mon Profil</h2>
+    <form method="POST">
+        <div class="row">
+            <label for="birth_date">Date de naissance :</label>
+            <input type="date" id="birth_date" name="birth_date" value="{{ profile.birth_date }}">
+            <div class="age-display" id="age_display">👤 Âge : -</div>
+        </div>
 
-    <label>Poids (kg) :</label>
-    <input type="number" step="0.1" name="weight" value="{{ profile.weight }}">
+        <div class="row">
+            <label for="weight">Poids (kg) :</label>
+            <input type="number" step="0.1" id="weight" name="weight" value="{{ profile.weight }}">
+        </div>
 
-    <h2>Événements à venir</h2>
-    {% for event in profile.events %}
-        <input type="date" name="event_date" value="{{ event.date }}">
-        <input type="text" name="event_name" value="{{ event.name }}">
-    {% endfor %}
-    {% for i in range(3 - profile.events|length) %}
-        <input type="date" name="event_date">
-        <input type="text" name="event_name">
-    {% endfor %}
+        <h3>Événements</h3>
+        <table id="events_table">
+            <thead>
+                <tr><th>Date</th><th>Note</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for event in profile.events %}
+                <tr>
+                    <td><input type="date" name="event_date" value="{{ event.date }}"></td>
+                    <td><input type="text" name="event_name" value="{{ event.name }}"></td>
+                    <td><button type="button" onclick="removeRow(this)">❌</button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="button" class="add-btn" onclick="addRow()">➕ Ajouter événement</button>
 
-    <button type="submit">💾 Enregistrer</button>
-</form>
+        <div>
+            <button type="submit" class="save-btn">💾 Enregistrer</button>
+        </div>
+    </form>
 
-<p><a href="/">⬅ Retour au dashboard</a></p>
+    <script>
+        function calculateAge(birthDate) {
+            const today = new Date();
+            const birth = new Date(birthDate);
+            let age = today.getFullYear() - birth.getFullYear();
+            const m = today.getMonth() - birth.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+                age--;
+            }
+            return age;
+        }
+
+        document.getElementById('birth_date').addEventListener('input', function() {
+            const age = calculateAge(this.value);
+            document.getElementById('age_display').textContent = isNaN(age) ? "👤 Âge : -" : `👤 Âge : ${age} ans`;
+        });
+
+        function addRow() {
+            const table = document.getElementById('events_table').getElementsByTagName('tbody')[0];
+            const row = table.insertRow();
+            row.innerHTML = `
+                <td><input type="date" name="event_date"></td>
+                <td><input type="text" name="event_name"></td>
+                <td><button type="button" onclick="removeRow(this)">❌</button></td>
+            `;
+        }
+
+        function removeRow(btn) {
+            const row = btn.parentNode.parentNode;
+            row.parentNode.removeChild(row);
+        }
+
+        // Initialiser affichage âge si déjà rempli
+        if (document.getElementById('birth_date').value) {
+            const age = calculateAge(document.getElementById('birth_date').value);
+            document.getElementById('age_display').textContent = isNaN(age) ? "👤 Âge : -" : `👤 Âge : ${age} ans`;
+        }
+    </script>
+
 </body>
 </html>
 
