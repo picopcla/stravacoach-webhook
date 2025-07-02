@@ -1,101 +1,89 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profil</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            padding: 10px;
-            max-width: 500px;
-            margin: auto;
-        }
-        h1 {
-            text-align: center;
-        }
-        form {
-            margin-top: 20px;
-        }
-        label, input, table {
-            width: 100%;
-            margin-bottom: 10px;
-        }
-        table {
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        th, td {
-            border: 1px solid #999;
-            padding: 8px;
-            text-align: left;
-        }
-        input[type="submit"], a.button {
-            background: #007bff;
-            color: white;
-            padding: 10px;
-            text-align: center;
-            display: block;
-            text-decoration: none;
-            border-radius: 5px;
-            margin-top: 15px;
-        }
-    </style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profil StravaCoach</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <h1>🔧 Mon Profil</h1>
+<body class="bg-gray-50 text-gray-800">
 
-    <form method="POST">
-        <label for="birth_date">Date de naissance :</label>
-        <input type="date" name="birth_date" id="birth_date" value="{{ profile.birth_date }}" required>
+    <div class="max-w-3xl mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-6 text-center">🎯 Mon Profil</h1>
 
-        <label for="age">Âge calculé :</label>
-        <input type="text" id="age" readonly>
+        <form method="POST" class="space-y-6">
 
-        <label for="weight">Poids (kg) :</label>
-        <input type="number" step="0.1" name="weight" id="weight" value="{{ profile.weight }}">
+            <!-- Age et poids -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow">
+                    <label class="block text-sm font-medium mb-1">Date de naissance</label>
+                    <input type="date" name="birth_date" value="{{ profile.birth_date }}"
+                           class="w-full border border-gray-300 rounded p-2" required>
+                    <p class="text-xs mt-2 text-gray-500">
+                        Âge estimé : 
+                        {% if profile.birth_date %}
+                        {{ ((now() - datetime.strptime(profile.birth_date, '%Y-%m-%d')).days // 365) }} ans
+                        {% else %} ? {% endif %}
+                    </p>
+                </div>
 
-        <h3>Événements à venir</h3>
-        <table id="eventsTable">
-            <tr>
-                <th>Date</th>
-                <th>Nom</th>
-            </tr>
-            {% for event in profile.events %}
-            <tr>
-                <td><input type="date" name="event_date" value="{{ event.date }}"></td>
-                <td><input type="text" name="event_name" value="{{ event.name }}"></td>
-            </tr>
-            {% endfor %}
-            <tr>
-                <td><input type="date" name="event_date"></td>
-                <td><input type="text" name="event_name"></td>
-            </tr>
-        </table>
-        
-        <input type="submit" value="💾 Enregistrer">
-    </form>
+                <div class="bg-white p-4 rounded-xl shadow">
+                    <label class="block text-sm font-medium mb-1">Poids (kg)</label>
+                    <input type="number" step="0.1" name="weight" value="{{ profile.weight }}"
+                           class="w-full border border-gray-300 rounded p-2" required>
+                </div>
+            </div>
 
-    <a href="/" class="button">🏠 Retour Dashboard</a>
+            <!-- Événements -->
+            <div class="bg-white p-4 rounded-xl shadow">
+                <h2 class="text-xl font-bold mb-4">Événements à venir</h2>
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="py-2">Date</th>
+                            <th class="py-2">Nom</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in profile.events %}
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-2">
+                                <input type="date" name="event_date" value="{{ event.date }}"
+                                    class="border border-gray-300 rounded p-1 w-full">
+                            </td>
+                            <td class="py-2">
+                                <input type="text" name="event_name" value="{{ event.name }}"
+                                    class="border border-gray-300 rounded p-1 w-full">
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        <tr>
+                            <td class="py-2">
+                                <input type="date" name="event_date" class="border border-gray-300 rounded p-1 w-full">
+                            </td>
+                            <td class="py-2">
+                                <input type="text" name="event_name" placeholder="Nouveau..."
+                                    class="border border-gray-300 rounded p-1 w-full">
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-    <script>
-        function calculateAge() {
-            const birthDate = document.getElementById('birth_date').value;
-            if (birthDate) {
-                const today = new Date();
-                const birth = new Date(birthDate);
-                let age = today.getFullYear() - birth.getFullYear();
-                const m = today.getMonth() - birth.getMonth();
-                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-                    age--;
-                }
-                document.getElementById('age').value = age + ' ans';
-            } else {
-                document.getElementById('age').value = '';
-            }
-        }
-        document.getElementById('birth_date').addEventListener('change', calculateAge);
-        window.onload = calculateAge;
-    </script>
+            <!-- Bouton -->
+            <div class="text-center">
+                <button type="submit"
+                        class="bg-green-600 text-white py-2 px-6 rounded-full hover:bg-green-700 transition">
+                    ✅ Sauvegarder
+                </button>
+            </div>
+
+        </form>
+
+        <div class="text-center mt-6">
+            <a href="/" class="text-indigo-600 hover:underline">← Retour au dashboard</a>
+        </div>
+    </div>
+
 </body>
 </html>
