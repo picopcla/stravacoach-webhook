@@ -1,83 +1,53 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StravaCoach Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>StravaCoach - Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
+    .container { max-width:600px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
+    h1,h2 { text-align:center; color:#333; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    td,th { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
+    canvas { width:100% !important; height:auto !important; margin-top:2rem; }
+    .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
+    .btn:hover { background:#0056b3; }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-800">
+<body>
+  <div class="container">
+    <h1>🏃‍♂️ StravaCoach</h1>
+    <h2>Dernière activité</h2>
+    <table>
+      <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
+      <tr><th>Distance</th><td>{{ dashboard.distance }} km</td></tr>
+      <tr><th>Durée</th><td>{{ dashboard.duration }} min</td></tr>
+      <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
+      <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
+    </table>
+    <canvas id="myChart"></canvas>
+    <a class="btn" href="/profile">⚙️ Profil & Événements</a>
+  </div>
 
-    <div class="max-w-5xl mx-auto p-4">
-
-        <h1 class="text-3xl font-bold mb-6 text-center">🏃‍♂️ StravaCoach Dashboard</h1>
-
-        <!-- Stats -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-sm uppercase text-gray-500">Distance</h3>
-                <p class="text-3xl font-semibold text-indigo-600">{{ dashboard.distance_km }} km</p>
-            </div>
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-sm uppercase text-gray-500">Allure</h3>
-                <p class="text-3xl font-semibold text-green-600">{{ dashboard.allure }}</p>
-            </div>
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-sm uppercase text-gray-500">FC Moy</h3>
-                <p class="text-3xl font-semibold text-red-600">{{ dashboard.fc_moy }}</p>
-            </div>
-        </div>
-
-        <!-- Autres indicateurs -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-xs uppercase text-gray-500">FC Max</h3>
-                <p class="text-xl font-bold">{{ dashboard.fc_max }}</p>
-            </div>
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-xs uppercase text-gray-500">k Moy</h3>
-                <p class="text-xl font-bold">{{ dashboard.k_moy }}</p>
-            </div>
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-xs uppercase text-gray-500">Deriv Cardio</h3>
-                <p class="text-xl font-bold">{{ dashboard.deriv_cardio }}%</p>
-            </div>
-            <div class="bg-white shadow rounded-xl p-4 text-center">
-                <h3 class="text-xs uppercase text-gray-500">Gain Alt</h3>
-                <p class="text-xl font-bold">{{ dashboard.gain_alt }} m</p>
-            </div>
-        </div>
-
-        <!-- Laps -->
-        <div class="bg-white shadow rounded-xl p-6">
-            <h2 class="text-xl font-bold mb-4">Analyse par laps</h2>
-            <table class="min-w-full text-sm">
-                <thead>
-                    <tr class="border-b">
-                        <th class="py-2">#</th>
-                        <th class="py-2">Vitesse</th>
-                        <th class="py-2">FC Moy</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for lap in dashboard.laps %}
-                    <tr class="border-b hover:bg-gray-50">
-                        <td class="py-2 text-center">{{ lap.lap_number }}</td>
-                        <td class="py-2 text-center">{{ lap.pace_velocity }}</td>
-                        <td class="py-2 text-center">{{ lap.fc_avg }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="text-center mt-6">
-            <a href="/profile" class="inline-block bg-indigo-600 text-white py-2 px-6 rounded-full hover:bg-indigo-700 transition">
-                Modifier mon profil
-            </a>
-        </div>
-
-    </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById('myChart').getContext('2d');
+    const myChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ['Lap1','Lap2','Lap3','Lap4'], // pour démo statique
+        datasets: [{
+          label: 'Allure (min/km)',
+          data: [5.2,5.1,5.3,5.0],
+          borderColor: 'blue', borderWidth: 2, fill:false
+        }]
+      },
+      options: {
+        responsive:true, plugins:{ legend:{display:false}},
+        scales:{ y:{ beginAtZero:false}}
+      }
+    });
+  </script>
 </body>
 </html>
