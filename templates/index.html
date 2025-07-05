@@ -1,41 +1,4 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>StravaCoach - Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
-    .container { max-width:600px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-    h1,h2 { text-align:center; color:#333; }
-    table { width:100%; border-collapse:collapse; margin-top:1rem; }
-    td,th { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
-    canvas { width:100% !important; height:auto !important; margin-top:2rem; }
-    .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
-    .btn:hover { background:#0056b3; }
-  </style>
-</head>
-<body>
-<div class="container">
-  <h1>🏃‍♂️ StravaCoach</h1>
-  <h2>Dernière activité</h2>
-  <table>
-    <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
-    <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
-    <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
-    <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
-    <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
-    <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
-    <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
-    <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
-    <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
-  </table>
-
-  <h2>Allure & FC sur même progression</h2>
-  <canvas id="chartGlobal"></canvas>
-  <a class="btn" href="/profile">⚙️ Profil & Événements</a>
-</div>
-
+<canvas id="chartGlobal"></canvas>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 const ctx = document.getElementById('chartGlobal').getContext('2d');
@@ -50,7 +13,7 @@ const chart = new Chart(ctx, {
         borderColor: 'blue',
         yAxisID: 'y',
         fill: false,
-        tension: 0.4,  // courbe lissée
+        tension: 0.4,
         pointRadius: 0
       },
       {
@@ -61,31 +24,31 @@ const chart = new Chart(ctx, {
         fill: false,
         tension: 0.4,
         pointRadius: 0
+      },
+      {
+        label: 'Élévation',
+        data: {{ dashboard.points_alt }},
+        borderColor: (ctx) => {
+          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, ctx.chart.width, 0);
+          gradient.addColorStop(0, 'green');
+          gradient.addColorStop(1, 'red');
+          return gradient;
+        },
+        yAxisID: 'y2',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0
       }
     ]
   },
   options: {
     responsive: true,
     scales: {
-      x: { 
-        type: 'linear', 
-        title: { display: true, text: 'Progression (points 10s)' }
-      },
-      y: { 
-        type: 'linear',
-        position: 'left',
-        title: { display: true, text: 'Allure (min/km)' },
-        min: 2   // échelle minimum fixée à 2
-      },
-      y1: { 
-        type: 'linear',
-        position: 'right',
-        title: { display: true, text: 'FC (bpm)' },
-        grid: { drawOnChartArea: false }
-      }
+      x: { type: 'linear', title: { display: true, text: 'Progression (points 10s)' }},
+      y: { type: 'linear', position: 'left', title: { display: true, text: 'Allure (min/km)' }, min: 3.5 },
+      y1: { type: 'linear', position: 'right', title: { display: true, text: 'FC (bpm)' }, grid: { drawOnChartArea: false }},
+      y2: { type: 'linear', position: 'right', title: { display: true, text: 'Élévation (m)' }, grid: { drawOnChartArea: false }, offset: true }
     }
   }
 });
 </script>
-</body>
-</html>
