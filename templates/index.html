@@ -36,6 +36,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 <script>
 const ctx = document.getElementById('chartGlobal').getContext('2d');
 const chart = new Chart(ctx, {
@@ -47,36 +48,52 @@ const chart = new Chart(ctx, {
         label: 'Allure (min/km)',
         data: {{ dashboard.allure_curve }},
         borderColor:'blue',
+        backgroundColor:'transparent',
         borderWidth:1,
         yAxisID:'y',
-        fill:false,
         tension:0,
-        pointRadius:0
+        stepped:true,
+        pointRadius:0,
+        datalabels: {
+          align: 'center',
+          anchor: 'center',
+          color: 'blue',
+          font: { size: 10 },
+          formatter: function(value, context) {
+            return value.toFixed(1);
+          }
+        }
       },
       {
         label: 'FC (bpm)',
         data: {{ dashboard.points_fc }},
         borderColor:'red',
+        backgroundColor:'transparent',
         borderWidth:1,
         yAxisID:'y1',
-        fill:false,
         tension:0,
-        pointRadius:0
+        pointRadius:0,
+        datalabels: { display: false }
       },
       {
         label: 'Élévation (m)',
         data: {{ dashboard.points_alt }},
         borderColor:'green',
+        backgroundColor:'rgba(0,255,0,0.1)',
         borderWidth:1,
         yAxisID:'y2',
-        fill:{target:'origin',above:'rgba(0,255,0,0.1)',below:'rgba(255,0,0,0.1)'},
         tension:0,
-        pointRadius:0
+        fill:true,
+        pointRadius:0,
+        datalabels: { display: false }
       }
     ]
   },
   options: {
     responsive:true,
+    plugins: {
+      datalabels: { clip: true }
+    },
     scales: {
       y: {
         type:'linear',
@@ -102,7 +119,8 @@ const chart = new Chart(ctx, {
         title: { display: true, text: 'Élévation (m)' }
       }
     }
-  }
+  },
+  plugins: [ChartDataLabels]
 });
 </script>
 </body>
