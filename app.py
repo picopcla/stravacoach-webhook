@@ -10,7 +10,9 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
+# -------------------
 # Auth Google Drive
+# -------------------
 try:
     service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
 except KeyError:
@@ -20,13 +22,16 @@ credentials = service_account.Credentials.from_service_account_info(
     service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
 drive_service = build('drive', 'v3', credentials=credentials)
 
+# -------------------
+# Fonctions helpers
+# -------------------
 def load_activities_from_drive():
     try:
         results = drive_service.files().list(
             q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute()
+            spaces='drive', fields='files(id, name)').execute())
     except Exception as e:
-        print("Erreur Drive:", e)
+        print("Erreur connexion Drive (activities):", e)
         return None
     files = results.get('files', [])
     if not files:
@@ -41,12 +46,61 @@ def load_activities_from_drive():
     fh.seek(0)
     return json.loads(fh.read())
 
+def load_profile_from_drive():
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+            spaces='drive', fields='files(id, name)').execute())
+    except Exception as e:
+        print("Erreur connexion Drive (profile):", e)
+        return {"birth_date": "", "weight": 0, "events": []}
+    files = results.get('files', [])
+    if not files:
+        return {"birth_date": "", "weight": 0, "events": []}
+    file_id = files[0]['id']
+    try:
+        request_dl = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_dl)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        with open('profile.json', 'wb') as f:
+            f.write(fh.read())
+        with open('profile.json') as f:
+            return json.load(f)
+    except Exception as e:
+        print("Erreur téléchargement profile.json:", e)
+        return {"birth_date": "", "weight": 0, "events": []}
+
+def save_profile_to_drive(profile):
+    with open('profile.json', 'w') as f:
+        json.dump(profile, f, indent=2)
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
+            spaces='drive', fields='files(id, name)').execute())
+        files = results.get('files', [])
+        if files:
+            file_id = files[0]['id']
+            media = MediaFileUpload('profile.json', mimetype='application/json')
+            drive_service.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
+            media = MediaFileUpload('profile.json', mimetype='application/json')
+            drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    except Exception as e:
+        print("Erreur upload profile.json:", e)
+
+# -------------------
+# Dashboard avec allure, FC & élévation alignées sur distance
+# -------------------
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     laps = last.get("laps", [])
     points = last.get("points", [])
-
     if not laps or not points:
         return {}
 
@@ -54,7 +108,6 @@ def compute_dashboard_data(activities, profile):
     total_time = (points[-1]["time"] - points[0]["time"]) / 60
     allure_moy = total_time / total_dist if total_dist > 0 else None
 
-    # calculs globaux
     hr_vals = [p["hr"] for p in points if p.get("hr")]
     fc_moy = sum(hr_vals)/len(hr_vals) if hr_vals else "-"
     fc_max = max(hr_vals) if hr_vals else "-"
@@ -66,12 +119,11 @@ def compute_dashboard_data(activities, profile):
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/ (sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
     gain_alt = points[-1]["alt"] - points[0]["alt"] if points[0].get("alt") else 0
 
-    # préparer les courbes
     labels = [round(p["distance"]/1000, 3) for p in points]
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
 
-    # pour allure par laps, projetée sur les points
+    # allure projetée aux points
     allure_par_point = []
     lap_idx = 0
     for p in points:
@@ -96,11 +148,14 @@ def compute_dashboard_data(activities, profile):
         "points_alt": json.dumps(points_alt)
     }
 
+# -------------------
+# Routes Flask
+# -------------------
 @app.route("/")
 def index():
     activities = load_activities_from_drive()
     if not activities:
-        return "Aucune activité trouvée"
+        return "❌ Aucun activities.json trouvé sur ton Drive."
     profile = load_profile_from_drive()
     dashboard = compute_dashboard_data(activities, profile)
     return render_template("index.html", dashboard=dashboard)
