@@ -43,7 +43,7 @@ const chart = new Chart(ctx, {
   data: {
     labels: {{ dashboard.labels }},
     datasets: [
-      { label: 'Allure (min/km)', data: {{ dashboard.allure_curve }}, borderColor:'blue', yAxisID:'y', fill:false, tension:0.4, pointRadius:0 },
+      { label: 'Allure (min/km)', data: {{ dashboard.allure_curve }}, borderColor:'blue', yAxisID:'y', fill:false, tension:0., pointRadius:0 },
       { label: 'FC (bpm)', data: {{ dashboard.points_fc }}, borderColor:'red', yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
       { label: 'Élévation (m)', data: {{ dashboard.points_alt }}, borderColor:'green', yAxisID:'y2', fill:{target:'origin',above:'rgba(0,255,0,0.1)',below:'rgba(255,0,0,0.1)'}, tension:0.4, pointRadius:0 }
     ]
