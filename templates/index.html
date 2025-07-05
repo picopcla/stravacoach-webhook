@@ -1,90 +1,49 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>StravaCoach - Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
-    .container { max-width:600px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-    h1,h2 { text-align:center; color:#333; }
-    table { width:100%; border-collapse:collapse; margin-top:1rem; }
-    td,th { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
-    canvas { width:100% !important; height:auto !important; margin-top:2rem; }
-    .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
-    .btn:hover { background:#0056b3; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>🏃‍♂️ StravaCoach</h1>
-    <h2>Dernière activité</h2>
-    <table>
-      <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
-      <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
-      <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
-      <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
-      <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
-      <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
-      <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
-      <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
-      <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
-    </table>
+<canvas id="chartGlobal"></canvas>
 
-    <h2>Allure par km</h2>
-    <canvas id="chartPace"></canvas>
-
-    <h2>Fréquence Cardiaque</h2>
-    <canvas id="chartFC"></canvas>
-
-    <a class="btn" href="/profile">⚙️ Profil & Événements</a>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    const ctxPace = document.getElementById('chartPace').getContext('2d');
-    const chartPace = new Chart(ctxPace, {
-      type: 'line',
-      data: {
-        labels: {{ dashboard.laps_labels }},
-        datasets: [{
-          label: 'Allure (min/km)',
-          data: {{ dashboard.laps_paces }},
-          borderColor: 'blue',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.4,
-          pointRadius: 0
-        }]
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const ctx = document.getElementById('chartGlobal').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: {{ dashboard.laps_labels }},
+    datasets: [
+      {
+        label: 'Allure (min/km)',
+        data: {{ dashboard.laps_paces }},
+        borderColor: 'blue',
+        yAxisID: 'y',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false }},
-        scales: { y: { beginAtZero: false }}
+      {
+        label: 'FC',
+        data: {{ dashboard.points_fc }},
+        borderColor: 'red',
+        yAxisID: 'y1',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0
       }
-    });
-
-    const ctxFC = document.getElementById('chartFC').getContext('2d');
-    const chartFC = new Chart(ctxFC, {
-      type: 'line',
-      data: {
-        labels: Array.from({length: {{ dashboard.points_fc | length }}}, (_, i) => i+1),
-        datasets: [{
-          label: 'FC',
-          data: {{ dashboard.points_fc }},
-          borderColor: 'red',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.4,
-          pointRadius: 0
-        }]
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      y: {
+        type: 'linear',
+        position: 'left',
+        beginAtZero: false
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false }},
-        scales: { y: { beginAtZero: false }}
+      y1: {
+        type: 'linear',
+        position: 'right',
+        beginAtZero: false,
+        grid: { drawOnChartArea: false }
       }
-    });
-  </script>
-</body>
-</html>
+    }
+  }
+});
+</script>
+
