@@ -114,11 +114,17 @@ def compute_dashboard_data(activities, profile):
     k_moy = sum(k_all) / len(k_all) if k_all else None
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
 
-    # Allure par points 10s
-    points_chart_data = [
-        {"point": i+1, "pace": (60 / (p.get("vel")*3.6)) if p.get("vel") else None, "fc": p.get("hr")}
-        for i, p in enumerate(points)
-    ]
+    # Calcul allure par points pour FC
+    points_fc = [p.get("hr") for p in points]
+
+    # Construire allure "étirée" sur les points selon les laps
+    laps_pace_per_point = []
+    points_per_lap = len(points) // len(laps) if laps else 1
+    for lap in laps:
+        laps_pace_per_point += [lap.get("pace_velocity")] * points_per_lap
+    # compléter au total
+    while len(laps_pace_per_point) < len(points):
+        laps_pace_per_point.append(laps[-1].get("pace_velocity"))
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -130,8 +136,10 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "points_chart_data": json.dumps(points_chart_data)
+        "laps_pace_per_point": json.dumps(laps_pace_per_point),
+        "points_fc": json.dumps(points_fc)
     }
+
 
 @app.route("/")
 def index():
