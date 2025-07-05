@@ -1,96 +1,62 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>StravaCoach - Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
-    .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-    h1,h2 { text-align:center; color:#333; }
-    table { width:100%; border-collapse:collapse; margin-top:1rem; }
-    td,th { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
-    canvas { width:100% !important; height:auto !important; margin-top:2rem; }
-    .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:2rem; }
-    .btn:hover { background:#0056b3; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>StravaCoach - Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; background:#f5f5f5; }
+  .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
+  h1,h2 { text-align:center; }
+  table { width:100%; margin-top:1rem; border-collapse:collapse; }
+  th,td { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
+  canvas { width:100%; height:auto; margin-top:2rem; }
+  .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
+</style>
 </head>
 <body>
-  <div class="container">
-    <h1>🏃‍♂️ StravaCoach</h1>
-    <h2>Dernière activité</h2>
-    <table>
-      <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
-      <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
-      <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
-      <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
-      <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
-      <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
-      <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
-      <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
-      <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
-    </table>
+<div class="container">
+  <h1>🏃‍♂️ StravaCoach</h1>
+  <table>
+    <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
+    <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
+    <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
+    <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
+    <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
+    <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
+    <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
+    <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
+    <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
+  </table>
 
-    <h2>Allure, FC & Élévation</h2>
-    <canvas id="chartGlobal"></canvas>
+  <h2>Allure, FC & Élévation</h2>
+  <canvas id="chartGlobal"></canvas>
 
-    <a class="btn" href="/profile">⚙️ Profil & Événements</a>
-  </div>
+  <a class="btn" href="/profile">⚙️ Profil & Événements</a>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    const ctx = document.getElementById('chartGlobal').getContext('2d');
-    const chart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: Array.from({length: {{ dashboard.points_fc|length }}}, (_, i) => i+1),
-        datasets: [
-          {
-            label: 'Allure (min/km)',
-            data: Array({{ dashboard.points_fc|length }}).fill(null).map((_, i) => 
-              i < {{ dashboard.laps_paces|length }} ? {{ dashboard.laps_paces }}[i] : null
-            ),
-            borderColor: 'blue',
-            yAxisID: 'y',
-            fill: false,
-            tension: 0.4,
-            pointRadius: 0
-          },
-          {
-            label: 'FC (bpm)',
-            data: {{ dashboard.points_fc }},
-            borderColor: 'red',
-            yAxisID: 'y1',
-            fill: false,
-            tension: 0.4,
-            pointRadius: 0
-          },
-          {
-            label: 'Élévation (m)',
-            data: {{ dashboard.points_elev }},
-            borderColor: 'rgba(0,0,0,0)',
-            backgroundColor: function(context) {
-              const value = context.raw;
-              const ratio = (value || 0) / 100;
-              return `rgba(${255*(1-ratio)}, ${255*ratio}, 0, 0.5)`;
-            },
-            yAxisID: 'y2',
-            fill: true,
-            pointRadius: 0,
-            tension: 0.4
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: true }},
-        scales: {
-          y: { type: 'linear', position: 'left', beginAtZero: false, min: 3.5 },
-          y1: { type: 'linear', position: 'right', beginAtZero: false, grid: { drawOnChartArea: false }},
-          y2: { type: 'linear', position: 'right', beginAtZero: true, max: 100, display: false }
-        }
-      }
-    });
-  </script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const ctx = document.getElementById('chartGlobal').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: {{ dashboard.labels }},
+    datasets: [
+      { label: 'Allure (min/km)', data: {{ dashboard.allure_curve }}, borderColor:'blue', yAxisID:'y', fill:false, tension:0.4, pointRadius:0 },
+      { label: 'FC (bpm)', data: {{ dashboard.points_fc }}, borderColor:'red', yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
+      { label: 'Élévation (m)', data: {{ dashboard.points_alt }}, borderColor:'green', yAxisID:'y2', fill:{target:'origin',above:'rgba(0,255,0,0.1)',below:'rgba(255,0,0,0.1)'}, tension:0.4, pointRadius:0 }
+    ]
+  },
+  options: {
+    responsive:true,
+    scales: {
+      y: { type:'linear', position:'left', min:3.5 },
+      y1:{ type:'linear', position:'right', grid:{drawOnChartArea:false}},
+      y2:{ type:'linear', position:'right', min:0, max:100, grid:{drawOnChartArea:false}}
+    }
+  }
+});
+</script>
 </body>
 </html>
