@@ -102,7 +102,6 @@ def save_profile_to_drive(profile):
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
-    laps = last.get("laps", [])
     points = last.get("points", [])
     if not points:
         return {}
@@ -122,10 +121,7 @@ def compute_dashboard_data(activities, profile):
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/ (sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
     gain_alt = points[-1]["alt"] - points[0]["alt"] if points[0].get("alt") else 0
 
-    # Labels = distance cumulée
     labels = [round(p["distance"]/1000, 3) for p in points]
-
-    # FC et élévation point par point
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
 
@@ -166,7 +162,6 @@ def compute_dashboard_data(activities, profile):
         "points_fc": json.dumps(points_fc),
         "points_alt": json.dumps(points_alt)
     }
-
 
 # -------------------
 # Routes Flask
