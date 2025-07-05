@@ -87,7 +87,7 @@ else:
     print("⚠️ Aucun activities.json sur Drive, on va en créer un nouveau.")
 
 # ----------------------------
-# Reconstruire les laps depuis les streams enrichis
+# Reconstruire les laps et points
 # ----------------------------
 activity_id_arg = int(sys.argv[1])
 
@@ -119,6 +119,7 @@ def process_activity(activity_id):
         print(f"⚠️ Pas de données pour activité {activity_id}, on ignore.")
         return
 
+    # ---------------- Laps (1 km) ----------------
     laps = []
     lap_start_idx = 0
     lap_number = 1
@@ -156,31 +157,53 @@ def process_activity(activity_id):
             lap_start_idx = i
             lap_number +=1
 
+    # ---------------- Points smoothed (10 sec) ----------------
+    points = []
+    window = 10
+    for i in range(0, len(time_data), window):
+        slice_range = range(i, min(i+window, len(time_data)))
+        point_time = time_data[slice_range[-1]]
+        avg_dist = sum(distance[j] for j in slice_range) / len(slice_range)
+        avg_hr = sum(heartrate[j] for j in slice_range if heartrate and j < len(heartrate)) / len(slice_range) if heartrate else None
+        avg_vel = sum(velocity[j] for j in slice_range if velocity and j < len(velocity)) / len(slice_range) if velocity else None
+        avg_alt = sum(altitude[j] for j in slice_range if altitude and j < len(altitude)) / len(slice_range) if altitude else None
+        avg_cad = sum(cadence[j] for j in slice_range if cadence and j < len(cadence)) / len(slice_range) if cadence else None
+        avg_temp = sum(temp[j] for j in slice_range if temp and j < len(temp)) / len(slice_range) if temp else None
+
+        points.append({
+            "time": point_time,
+            "distance": avg_dist,
+            "hr": avg_hr,
+            "vel": avg_vel,
+            "alt": avg_alt,
+            "cad": avg_cad,
+            "temp": avg_temp
+        })
+
     activities.append({
         "activity_id": activity_id,
         "date": start_date,
-        "laps": laps
+        "laps": laps,
+        "points": points
     })
     existing_ids.add(activity_id)
-    print(f"🚀 Activité {activity_id} ajoutée avec {len(laps)} laps.")
+    print(f"🚀 Activité {activity_id} ajoutée avec {len(laps)} laps et {len(points)} points.")
 
 # ----------------------------
 # ➡️ 1. Processer activité passée en argument
 # ----------------------------
 process_activity(activity_id_arg)
 
-# ➡️ 2. Vérifier les 100 dernières activités et nettoyer
+# ➡️ 2. Vérifier les dernières activités
 url = "https://www.strava.com/api/v3/athlete/activities"
 params = {"per_page": 10, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
 if isinstance(latest_activities, list):
-    # 🔥 Garder uniquement les activités qui existent toujours sur Strava
     strava_ids = set(act["id"] for act in latest_activities)
     activities = [a for a in activities if a["activity_id"] in strava_ids]
 
-    # Ajouter les nouvelles activités
     for act in latest_activities:
         process_activity(act["id"])
 else:
