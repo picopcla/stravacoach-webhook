@@ -50,7 +50,7 @@ const chart = new Chart(ctx, {
         borderColor: 'blue',
         yAxisID: 'y',
         fill: false,
-        tension: 0.4,
+        tension: 0.4,  // courbe lissée
         pointRadius: 0
       },
       {
@@ -67,9 +67,22 @@ const chart = new Chart(ctx, {
   options: {
     responsive: true,
     scales: {
-      x: { type: 'linear', title: { display: true, text: 'Progression (points 10s)' }},
-      y: { type: 'linear', position: 'left', title: { display: true, text: 'Allure (min/km)' }},
-      y1: { type: 'linear', position: 'right', title: { display: true, text: 'FC (bpm)' }, grid: { drawOnChartArea: false }}
+      x: { 
+        type: 'linear', 
+        title: { display: true, text: 'Progression (points 10s)' }
+      },
+      y: { 
+        type: 'linear',
+        position: 'left',
+        title: { display: true, text: 'Allure (min/km)' },
+        min: 2   // échelle minimum fixée à 2
+      },
+      y1: { 
+        type: 'linear',
+        position: 'right',
+        title: { display: true, text: 'FC (bpm)' },
+        grid: { drawOnChartArea: false }
+      }
     }
   }
 });
