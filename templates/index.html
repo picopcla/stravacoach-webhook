@@ -54,15 +54,7 @@ const chart = new Chart(ctx, {
         tension:0,
         stepped:true,
         pointRadius:0,
-        datalabels: {
-          align: 'center',
-          anchor: 'center',
-          color: 'blue',
-          font: { size: 10 },
-          formatter: function(value, context) {
-            return value.toFixed(1);
-          }
-        }
+        datalabels: { display: false }
       },
       {
         label: 'FC (bpm)',
@@ -86,6 +78,24 @@ const chart = new Chart(ctx, {
         fill:true,
         pointRadius:0,
         datalabels: { display: false }
+      },
+      {
+        label: 'Allure Bloc',
+        data: {{ dashboard.block_values }},
+        borderColor:'transparent',
+        backgroundColor:'transparent',
+        borderWidth:0,
+        yAxisID:'y',
+        pointRadius:0,
+        datalabels: {
+          align: 'center',
+          anchor: 'center',
+          color: 'blue',
+          font: { size: 10 },
+          formatter: function(value, context) {
+            return value.toFixed(1);
+          }
+        }
       }
     ]
   },
@@ -95,6 +105,7 @@ const chart = new Chart(ctx, {
       datalabels: { clip: true }
     },
     scales: {
+      x: { type:'category', labels: {{ dashboard.block_centers }} },
       y: {
         type:'linear',
         position:'left',
