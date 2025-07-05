@@ -5,31 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>StravaCoach - Dashboard</title>
   <style>
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      margin:0; padding:0; background:#f7f7f7;
-      display: flex; justify-content: center; align-items: center; flex-direction: column;
-      min-height: 100vh;
-    }
-    .container {
-      width: 90%;
-      max-width: 600px;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-      padding: 1.5rem;
-      margin: 1rem 0;
-    }
-    h1,h2 { text-align:center; color:#333; margin-bottom: 1rem; }
-    table { width:100%; border-collapse:collapse; }
-    td,th { padding:8px; border-bottom:1px solid #eee; text-align:left; }
-    canvas { width:100% !important; height:auto !important; margin-top:1.5rem; }
-    .btn {
-      display:block; width:100%; text-align:center; 
-      background:#007BFF; color:white; padding:12px; 
-      border-radius:6px; text-decoration:none; margin-top:1.5rem;
-      font-size:1.1em;
-    }
+    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
+    .container { max-width:600px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
+    h1,h2 { text-align:center; color:#333; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    td,th { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
+    canvas { width:100% !important; height:auto !important; margin-top:2rem; }
+    .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
     .btn:hover { background:#0056b3; }
   </style>
 </head>
@@ -41,70 +23,37 @@
       <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
       <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
       <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
-      <tr><th>Allure moy</th><td>{{ dashboard.allure }} min/km</td></tr>
-      <tr><th>FC moy</th><td>{{ dashboard.fc_moy }}</td></tr>
-      <tr><th>FC max</th><td>{{ dashboard.fc_max }}</td></tr>
-      <tr><th>Dérive cardio</th><td>{{ dashboard.deriv_cardio }}%</td></tr>
-      <tr><th>k (efficacité)</th><td>{{ dashboard.k_moy }}</td></tr>
+      <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
+      <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
+      <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
+      <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
     </table>
 
-    <canvas id="chartAllure"></canvas>
-    <canvas id="chartFC"></canvas>
-
+    <canvas id="myChart"></canvas>
     <a class="btn" href="/profile">⚙️ Profil & Événements</a>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const labels = {{ dashboard.dates|safe }};
-    const paces = {{ dashboard.paces|safe }};
-    const fc_avg = {{ dashboard.fc_avg|safe }};
-
-    new Chart(document.getElementById('chartAllure').getContext('2d'), {
+    const ctx = document.getElementById('myChart').getContext('2d');
+    const myChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: labels,
+        labels: {{ dashboard.labels }},
         datasets: [{
           label: 'Allure (min/km)',
-          data: paces,
+          data: {{ dashboard.paces }},
           borderColor: 'blue',
           borderWidth: 2,
-          fill: false
+          fill: false,
+          tension: 0.4,  // <== courbe lissée
+          pointRadius: 0 // <== sans points
         }]
       },
       options: {
         responsive: true,
-        plugins: { legend: { display: true } },
-        scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: 'min/km' }
-          }
-        }
-      }
-    });
-
-    new Chart(document.getElementById('chartFC').getContext('2d'), {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'FC moyenne',
-          data: fc_avg,
-          borderColor: 'red',
-          borderWidth: 2,
-          fill: false
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: true } },
-        scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: 'BPM' }
-          }
-        }
+        plugins: { legend: { display: false }},
+        scales: { y: { beginAtZero: false }}
       }
     });
   </script>
