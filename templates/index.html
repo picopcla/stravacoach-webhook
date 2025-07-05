@@ -32,18 +32,18 @@
     </table>
 
     <h2>Allure par km</h2>
-    <canvas id="paceChart"></canvas>
+    <canvas id="chartPace"></canvas>
 
     <h2>Fréquence Cardiaque</h2>
-    <canvas id="fcChart"></canvas>
+    <canvas id="chartFC"></canvas>
 
     <a class="btn" href="/profile">⚙️ Profil & Événements</a>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const paceCtx = document.getElementById('paceChart').getContext('2d');
-    const paceChart = new Chart(paceCtx, {
+    const ctxPace = document.getElementById('chartPace').getContext('2d');
+    const chartPace = new Chart(ctxPace, {
       type: 'line',
       data: {
         labels: {{ dashboard.laps_labels }},
@@ -64,11 +64,11 @@
       }
     });
 
-    const fcCtx = document.getElementById('fcChart').getContext('2d');
-    const fcChart = new Chart(fcCtx, {
+    const ctxFC = document.getElementById('chartFC').getContext('2d');
+    const chartFC = new Chart(ctxFC, {
       type: 'line',
       data: {
-        labels: Array.from({length: {{ dashboard.points_fc|length }} }, (_, i) => i+1),
+        labels: Array.from({length: {{ dashboard.points_fc | length }}}, (_, i) => i+1),
         datasets: [{
           label: 'FC',
           data: {{ dashboard.points_fc }},
