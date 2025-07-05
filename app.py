@@ -8,12 +8,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 app = Flask(__name__)
-
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 
-# -------------------
-# Initialisation Google Drive
-# -------------------
 try:
     service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
 except KeyError:
@@ -25,9 +21,6 @@ credentials = service_account.Credentials.from_service_account_info(
 drive_service = build('drive', 'v3', credentials=credentials)
 globals()['drive_service'] = drive_service
 
-# -------------------
-# Fonctions helpers
-# -------------------
 def load_activities_from_drive():
     try:
         results = drive_service.files().list(
@@ -36,11 +29,8 @@ def load_activities_from_drive():
     except Exception as e:
         print("😥 Erreur connexion Google Drive (activities):", e)
         return None
-
     files = results.get('files', [])
-    if not files:
-        return None
-
+    if not files: return None
     file_id = files[0]['id']
     try:
         request_file = drive_service.files().get_media(fileId=file_id)
@@ -63,11 +53,8 @@ def load_profile_from_drive():
     except Exception as e:
         print("😥 Erreur connexion Google Drive (profile):", e)
         return {"birth_date": "", "weight": 0, "events": []}
-
     files = results.get('files', [])
-    if not files:
-        return {"birth_date": "", "weight": 0, "events": []}
-
+    if not files: return {"birth_date": "", "weight": 0, "events": []}
     file_id = files[0]['id']
     try:
         request_dl = drive_service.files().get_media(fileId=file_id)
@@ -104,19 +91,14 @@ def save_profile_to_drive(profile):
     except Exception as e:
         print("😥 Erreur upload profile.json:", e)
 
-# -------------------
-# Dashboard principal basé sur points + laps
-# -------------------
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last_activity = activities[-1]
     laps = last_activity.get("laps", [])
     points = last_activity.get("points", [])
-
     if not laps or not points:
         return {}
 
-    # Données globales
     total_dist = sum(l.get("distance",0) for l in laps)/1000
     total_time = sum(l.get("duration",0) for l in laps)/60
     allure_moy = total_time / total_dist if total_dist > 0 else None
@@ -124,26 +106,19 @@ def compute_dashboard_data(activities, profile):
     hr_values = [p.get("hr") for p in points if p.get("hr") is not None]
     fc_moy = sum(hr_values) / len(hr_values) if hr_values else None
     fc_max = max(hr_values) if hr_values else "-"
-
     half = len(points) // 2
-    fc_first = [p.get("hr") for p in points[:half] if p.get("hr") is not None]
-    fc_second = [p.get("hr") for p in points[half:] if p.get("hr") is not None]
+    fc_first = [p.get("hr") for p in points[:half] if p.get("hr")]
+    fc_second = [p.get("hr") for p in points[half:] if p.get("hr")]
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first)) / sum(fc_first)/len(fc_first)*100) if fc_first and fc_second else None
-
     k_all = [(p.get("hr") / (p.get("vel")*3.6)) for p in points if p.get("hr") and p.get("vel")]
     k_moy = sum(k_all) / len(k_all) if k_all else None
-
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
 
-    # Pour le graphique : data combinée
-    laps_chart_data = json.dumps([
-        {"lap": i+1, "pace": l.get("pace_velocity")}
-        for i, l in enumerate(laps)
-    ])
-    points_chart_data = json.dumps([
-        {"point": i+1, "fc": p.get("hr")}
-        for i, p in enumerate(points) if p.get("hr")
-    ])
+    # Allure par points 10s
+    points_chart_data = [
+        {"point": i+1, "pace": (60 / (p.get("vel")*3.6)) if p.get("vel") else None, "fc": p.get("hr")}
+        for i, p in enumerate(points)
+    ]
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -155,13 +130,9 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "laps_chart_data": laps_chart_data,
-        "points_chart_data": points_chart_data
+        "points_chart_data": json.dumps(points_chart_data)
     }
 
-# -------------------
-# Routes Flask
-# -------------------
 @app.route("/")
 def index():
     activities = load_activities_from_drive()
