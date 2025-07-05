@@ -77,9 +77,11 @@ def compute_dashboard_data(activities, profile):
     last_activity = activities[-1]
     laps = last_activity.get("laps", [])
     points = last_activity.get("points", [])
+
     if not laps or not points:
         return {}
 
+    # Données globales
     total_dist = sum(l.get("distance",0) for l in laps)/1000
     total_time = sum(l.get("duration",0) for l in laps)/60
     allure_moy = total_time / total_dist if total_dist > 0 else None
@@ -87,26 +89,27 @@ def compute_dashboard_data(activities, profile):
     hr_values = [p.get("hr") for p in points if p.get("hr") is not None]
     fc_moy = sum(hr_values) / len(hr_values) if hr_values else None
     fc_max = max(hr_values) if hr_values else "-"
+
     half = len(points) // 2
-    fc_first = [p.get("hr") for p in points[:half] if p.get("hr")]
-    fc_second = [p.get("hr") for p in points[half:] if p.get("hr")]
+    fc_first = [p.get("hr") for p in points[:half] if p.get("hr") is not None]
+    fc_second = [p.get("hr") for p in points[half:] if p.get("hr") is not None]
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first)) / sum(fc_first)/len(fc_first)*100) if fc_first and fc_second else None
+
     k_all = [(p.get("hr") / (p.get("vel")*3.6)) for p in points if p.get("hr") and p.get("vel")]
     k_moy = sum(k_all) / len(k_all) if k_all else None
+
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
 
-    # Courbe interpolée allure (laps) sur longueur des points
-    lap_paces = [lap.get("pace_velocity") for lap in laps]
-    n_points = len(points)
-    laps_pace_per_point = np.interp(
-        np.linspace(0, len(laps)-1, n_points),
-        np.arange(len(laps)),
-        lap_paces
-    ).tolist()
+    # Pour le graphique des laps
+    laps_labels = json.dumps([f"Lap {l['lap_number']}" for l in laps])
+    laps_paces = json.dumps([l.get("pace_velocity") for l in laps])
 
-    # FC et altitude par point
-    points_fc = [p.get("hr") for p in points]
-    points_alt = [p.get("alt") for p in points]
+    # Pour le graphique FC sur points
+    points_fc = json.dumps([p.get("hr") for p in points if p.get("hr")])
+
+    # Elevation normalisée pour commencer à 0
+    elevation_values = [p.get("alt") for p in points if p.get("alt") is not None]
+    elevation_zeroed = [round(e - elevation_values[0], 2) for e in elevation_values] if elevation_values else []
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -118,10 +121,12 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "laps_pace_per_point": json.dumps(laps_pace_per_point),
-        "points_fc": json.dumps(points_fc),
-        "points_alt": json.dumps(points_alt)
+        "laps_labels": laps_labels,
+        "laps_paces": laps_paces,
+        "points_fc": points_fc,
+        "points_elev": json.dumps(elevation_zeroed)
     }
+
 
 @app.route("/")
 def index():
