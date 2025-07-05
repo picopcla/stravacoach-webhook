@@ -35,6 +35,7 @@
   <a class="btn" href="/profile">⚙️ Profil & Événements</a>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 const ctx = document.getElementById('chartGlobal').getContext('2d');
 const chart = new Chart(ctx, {
@@ -80,23 +81,23 @@ const chart = new Chart(ctx, {
       y: {
         type:'linear',
         position:'left',
-        min:3,
-        max:7,
+        suggestedMin:3,
+        suggestedMax:7,
         title: { display: true, text: 'Allure (min/km)' }
       },
       y1:{
         type:'linear',
         position:'right',
-        min:60,
-        max:160,
+        suggestedMin:60,
+        suggestedMax:160,
         grid:{drawOnChartArea:false},
         title: { display: true, text: 'FC (bpm)' }
       },
       y2:{
         type:'linear',
         position:'right',
-        min:0,
-        max:80,
+        suggestedMin:0,
+        suggestedMax:80,
         grid:{drawOnChartArea:false},
         title: { display: true, text: 'Élévation (m)' }
       }
@@ -104,6 +105,5 @@ const chart = new Chart(ctx, {
   }
 });
 </script>
-
 </body>
 </html>
