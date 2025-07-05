@@ -100,37 +100,47 @@ def save_profile_to_drive(profile):
         else:
             file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
             media = MediaFileUpload('profile.json', mimetype='application/json')
-            drive_service.files().create(body=file_metadata, media_body=media).execute()
+            drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
     except Exception as e:
         print("😥 Erreur upload profile.json:", e)
 
 # -------------------
-# Dashboard principal basé sur points
+# Dashboard principal basé sur points + laps
 # -------------------
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last_activity = activities[-1]
     points = last_activity.get("points", [])
+    laps = last_activity.get("laps", [])
+
     if not points:
         return {}
 
+    # Données globales
     total_dist = (points[-1].get("distance", 0) - points[0].get("distance", 0)) / 1000
     total_time = (points[-1].get("time", 0) - points[0].get("time", 0)) / 60
     allure_moy = total_time / total_dist if total_dist > 0 else None
 
+    # Cardio
     hr_values = [p.get("hr") for p in points if p.get("hr") is not None]
     fc_moy = sum(hr_values) / len(hr_values) if hr_values else None
     fc_max = max(hr_values) if hr_values else "-"
 
+    # Dérive cardiaque
     half = len(points) // 2
     fc_first = [p.get("hr") for p in points[:half] if p.get("hr") is not None]
     fc_second = [p.get("hr") for p in points[half:] if p.get("hr") is not None]
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first)) / sum(fc_first)/len(fc_first)*100) if fc_first and fc_second else None
 
+    # k
     k_all = [(p.get("hr") / (p.get("vel")*3.6)) for p in points if p.get("hr") and p.get("vel")]
     k_moy = sum(k_all) / len(k_all) if k_all else None
 
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
+
+    # Laps pour allure lissée
+    laps_labels = [f"Lap {l['lap_number']}" for l in laps]
+    laps_paces = [l.get("pace_velocity") for l in laps]
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -142,9 +152,9 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "dates": json.dumps([p.get("time") for p in points]),
-        "paces": json.dumps([60/(p.get("vel")*3.6) if p.get("vel") else None for p in points]),
-        "fc_avg": json.dumps([p.get("hr") for p in points])
+        "laps_labels": json.dumps(laps_labels),
+        "laps_paces": json.dumps(laps_paces),
+        "points_fc": json.dumps([p.get("hr") for p in points])
     }
 
 # -------------------
