@@ -39,15 +39,15 @@
     const myChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: {{ dashboard.labels }},
+        labels: {{ dashboard.dates }},
         datasets: [{
           label: 'Allure (min/km)',
           data: {{ dashboard.paces }},
           borderColor: 'blue',
           borderWidth: 2,
           fill: false,
-          tension: 0.4,  // <== courbe lissée
-          pointRadius: 0 // <== sans points
+          tension: 0.4,
+          pointRadius: 0
         }]
       },
       options: {
