@@ -26,24 +26,53 @@
       <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
       <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
       <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
+      <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
+      <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
       <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
     </table>
 
-    <canvas id="myChart"></canvas>
+    <h2>Allure par km</h2>
+    <canvas id="paceChart"></canvas>
+
+    <h2>Fréquence Cardiaque</h2>
+    <canvas id="fcChart"></canvas>
+
     <a class="btn" href="/profile">⚙️ Profil & Événements</a>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const ctx = document.getElementById('myChart').getContext('2d');
-    const myChart = new Chart(ctx, {
+    const paceCtx = document.getElementById('paceChart').getContext('2d');
+    const paceChart = new Chart(paceCtx, {
       type: 'line',
       data: {
-        labels: {{ dashboard.dates }},
+        labels: {{ dashboard.laps_labels }},
         datasets: [{
           label: 'Allure (min/km)',
-          data: {{ dashboard.paces }},
+          data: {{ dashboard.laps_paces }},
           borderColor: 'blue',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false }},
+        scales: { y: { beginAtZero: false }}
+      }
+    });
+
+    const fcCtx = document.getElementById('fcChart').getContext('2d');
+    const fcChart = new Chart(fcCtx, {
+      type: 'line',
+      data: {
+        labels: Array.from({length: {{ dashboard.points_fc|length }} }, (_, i) => i+1),
+        datasets: [{
+          label: 'FC',
+          data: {{ dashboard.points_fc }},
+          borderColor: 'red',
           borderWidth: 2,
           fill: false,
           tension: 0.4,
