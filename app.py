@@ -135,12 +135,15 @@ def compute_dashboard_data(activities, profile):
 
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
 
-    # Pour le graphique des laps
-    laps_labels = json.dumps([f"Lap {l['lap_number']}" for l in laps])
-    laps_paces = json.dumps([l.get("pace_velocity") for l in laps])
-
-    # Pour le graphique FC sur points
-    points_fc = json.dumps([p.get("hr") for p in points if p.get("hr")])
+    # Pour le graphique : data combinée
+    laps_chart_data = json.dumps([
+        {"lap": i+1, "pace": l.get("pace_velocity")}
+        for i, l in enumerate(laps)
+    ])
+    points_chart_data = json.dumps([
+        {"point": i+1, "fc": p.get("hr")}
+        for i, p in enumerate(points) if p.get("hr")
+    ])
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -152,10 +155,10 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "laps_labels": laps_labels,
-        "laps_paces": laps_paces,
-        "points_fc": points_fc
+        "laps_chart_data": laps_chart_data,
+        "points_chart_data": points_chart_data
     }
+
 # -------------------
 # Routes Flask
 # -------------------
