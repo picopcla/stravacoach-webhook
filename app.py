@@ -100,6 +100,9 @@ def save_profile_to_drive(profile):
 # Dashboard principal
 # -------------------
 def compute_dashboard_data(activities, profile):
+    from datetime import datetime
+    import json
+
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     points = last.get("points", [])
@@ -123,7 +126,7 @@ def compute_dashboard_data(activities, profile):
 
     labels = [round(p["distance"]/1000, 3) for p in points]
     points_fc = [p["hr"] for p in points]
-    points_alt = [p["alt"]-points[0]["alt"] for p in points]
+    points_alt = [p["alt"] - points[0]["alt"] for p in points]
 
     # Allure en blocs fixes de 500 m
     allure_curve = []
@@ -147,6 +150,12 @@ def compute_dashboard_data(activities, profile):
     while len(allure_curve) < len(points):
         allure_curve.append(last_allure)
 
+    # Exclure les 300 premiers mètres sur le graphique
+    filtered_labels = [l for l, p in zip(labels, points) if p["distance"] >= 300]
+    filtered_fc = [fc for fc, p in zip(points_fc, points) if p["distance"] >= 300]
+    filtered_alt = [alt for alt, p in zip(points_alt, points) if p["distance"] >= 300]
+    filtered_allure = [al for al, p in zip(allure_curve, points) if p["distance"] >= 300]
+
     return {
         "date": datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
         "distance_km": round(total_dist,2),
@@ -157,11 +166,12 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "labels": json.dumps(labels),
-        "allure_curve": json.dumps(allure_curve),
-        "points_fc": json.dumps(points_fc),
-        "points_alt": json.dumps(points_alt)
+        "labels": json.dumps(filtered_labels),
+        "allure_curve": json.dumps(filtered_allure),
+        "points_fc": json.dumps(filtered_fc),
+        "points_alt": json.dumps(filtered_alt)
     }
+
 
 # -------------------
 # Routes Flask
