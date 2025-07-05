@@ -99,12 +99,12 @@ def save_profile_to_drive(profile):
 # -------------------
 # Dashboard principal
 # -------------------
-def compute_dashboard_data(activities, profile):
+ef compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     laps = last.get("laps", [])
     points = last.get("points", [])
-    if not laps or not points:
+    if not points:
         return {}
 
     total_dist = points[-1]["distance"] / 1000
@@ -122,17 +122,43 @@ def compute_dashboard_data(activities, profile):
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/ (sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
     gain_alt = points[-1]["alt"] - points[0]["alt"] if points[0].get("alt") else 0
 
+    # Labels = distance cumulée
     labels = [round(p["distance"]/1000, 3) for p in points]
+
+    # FC et élévation point par point
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
 
-    allure_par_point = []
-    lap_idx = 0
-    for p in points:
-        while lap_idx+1 < len(laps) and p["distance"] >= laps[lap_idx+1]["distance"]:
-            lap_idx += 1
-        pace = laps[lap_idx]["pace_velocity"] if lap_idx < len(laps) else None
-        allure_par_point.append(pace)
+    # Allure en blocs de 500 m
+    allure_curve = []
+    bloc_start_idx = 0
+    bloc_distance = 0
+    bloc_time = 0
+    next_bloc_dist = 500  # en mètres
+    last_allure = None
+
+    for i, p in enumerate(points):
+        if i > 0:
+            delta_d = p["distance"] - points[i-1]["distance"]
+            delta_t = p["time"] - points[i-1]["time"]
+            bloc_distance += delta_d
+            bloc_time += delta_t
+
+        if bloc_distance >= next_bloc_dist or i == len(points)-1:
+            if bloc_distance > 0:
+                allure = (bloc_time / 60) / (bloc_distance / 1000)  # min/km
+                last_allure = allure
+            # remplir les points du bloc avec cette allure
+            for j in range(bloc_start_idx, i+1):
+                allure_curve.append(last_allure)
+            bloc_start_idx = i+1
+            bloc_distance = 0
+            bloc_time = 0
+            next_bloc_dist = 500
+
+    # si pas rempli (cas très court)
+    while len(allure_curve) < len(points):
+        allure_curve.append(last_allure)
 
     return {
         "date": datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -145,7 +171,7 @@ def compute_dashboard_data(activities, profile):
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
         "labels": json.dumps(labels),
-        "allure_curve": json.dumps(allure_par_point),
+        "allure_curve": json.dumps(allure_curve),
         "points_fc": json.dumps(points_fc),
         "points_alt": json.dumps(points_alt)
     }
