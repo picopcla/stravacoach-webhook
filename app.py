@@ -29,7 +29,8 @@ def load_activities_from_drive():
     try:
         results = drive_service.files().list(
             q=f"'{FOLDER_ID}' in parents and name='activities.json' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute())
+            spaces='drive', fields='files(id, name)'
+        ).execute()
     except Exception as e:
         print("Erreur connexion Drive (activities):", e)
         return None
@@ -50,7 +51,8 @@ def load_profile_from_drive():
     try:
         results = drive_service.files().list(
             q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute())
+            spaces='drive', fields='files(id, name)'
+        ).execute()
     except Exception as e:
         print("Erreur connexion Drive (profile):", e)
         return {"birth_date": "", "weight": 0, "events": []}
@@ -80,7 +82,8 @@ def save_profile_to_drive(profile):
     try:
         results = drive_service.files().list(
             q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute())
+            spaces='drive', fields='files(id, name)'
+        ).execute()
         files = results.get('files', [])
         if files:
             file_id = files[0]['id']
@@ -94,7 +97,7 @@ def save_profile_to_drive(profile):
         print("Erreur upload profile.json:", e)
 
 # -------------------
-# Dashboard avec allure, FC & élévation alignées sur distance
+# Dashboard principal
 # -------------------
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
@@ -123,7 +126,6 @@ def compute_dashboard_data(activities, profile):
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
 
-    # allure projetée aux points
     allure_par_point = []
     lap_idx = 0
     for p in points:
