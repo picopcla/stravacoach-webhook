@@ -31,7 +31,7 @@
     <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
   </table>
 
-  <h2>Allure & FC (points 10s)</h2>
+  <h2>Allure & FC sur même progression</h2>
   <canvas id="chartGlobal"></canvas>
   <a class="btn" href="/profile">⚙️ Profil & Événements</a>
 </div>
@@ -42,20 +42,25 @@ const ctx = document.getElementById('chartGlobal').getContext('2d');
 const chart = new Chart(ctx, {
   type: 'line',
   data: {
+    labels: Array.from({length: {{ dashboard.points_fc|length }}}, (_, i) => i+1),
     datasets: [
       {
         label: 'Allure (min/km)',
-        data: {{ dashboard.points_chart_data | safe }},
-        parsing: { xAxisKey: 'point', yAxisKey: 'pace' },
-        borderColor: 'blue', yAxisID: 'y',
-        fill: false, tension: 0.4, pointRadius: 0
+        data: {{ dashboard.laps_pace_per_point }},
+        borderColor: 'blue',
+        yAxisID: 'y',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0
       },
       {
         label: 'FC (bpm)',
-        data: {{ dashboard.points_chart_data | safe }},
-        parsing: { xAxisKey: 'point', yAxisKey: 'fc' },
-        borderColor: 'red', yAxisID: 'y1',
-        fill: false, tension: 0.4, pointRadius: 0
+        data: {{ dashboard.points_fc }},
+        borderColor: 'red',
+        yAxisID: 'y1',
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0
       }
     ]
   },
