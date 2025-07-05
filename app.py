@@ -99,7 +99,7 @@ def save_profile_to_drive(profile):
 # -------------------
 # Dashboard principal
 # -------------------
-ef compute_dashboard_data(activities, profile):
+def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     laps = last.get("laps", [])
@@ -129,34 +129,25 @@ ef compute_dashboard_data(activities, profile):
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
 
-    # Allure en blocs de 500 m
+    # Allure en blocs fixes de 500 m
     allure_curve = []
     bloc_start_idx = 0
-    bloc_distance = 0
-    bloc_time = 0
-    next_bloc_dist = 500  # en mètres
+    next_bloc_dist = 500  # premier bloc à 500 m
     last_allure = None
 
     for i, p in enumerate(points):
-        if i > 0:
-            delta_d = p["distance"] - points[i-1]["distance"]
-            delta_t = p["time"] - points[i-1]["time"]
-            bloc_distance += delta_d
-            bloc_time += delta_t
-
-        if bloc_distance >= next_bloc_dist or i == len(points)-1:
-            if bloc_distance > 0:
-                allure = (bloc_time / 60) / (bloc_distance / 1000)  # min/km
+        if p["distance"] >= next_bloc_dist or i == len(points)-1:
+            bloc_points = points[bloc_start_idx:i+1]
+            bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
+            bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
+            if bloc_dist > 0:
+                allure = (bloc_time / 60) / (bloc_dist / 1000)  # min/km
                 last_allure = allure
-            # remplir les points du bloc avec cette allure
-            for j in range(bloc_start_idx, i+1):
+            for _ in bloc_points:
                 allure_curve.append(last_allure)
             bloc_start_idx = i+1
-            bloc_distance = 0
-            bloc_time = 0
-            next_bloc_dist = 500
+            next_bloc_dist += 500
 
-    # si pas rempli (cas très court)
     while len(allure_curve) < len(points):
         allure_curve.append(last_allure)
 
@@ -175,6 +166,7 @@ ef compute_dashboard_data(activities, profile):
         "points_fc": json.dumps(points_fc),
         "points_alt": json.dumps(points_alt)
     }
+
 
 # -------------------
 # Routes Flask
