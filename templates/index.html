@@ -32,22 +32,21 @@
     </table>
 
     <h2>Allure & FC</h2>
-    <canvas id="chartCombined"></canvas>
-
+    <canvas id="chartGlobal"></canvas>
     <a class="btn" href="/profile">⚙️ Profil & Événements</a>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const ctx = document.getElementById('chartCombined').getContext('2d');
+    const ctx = document.getElementById('chartGlobal').getContext('2d');
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: {{ dashboard.laps_labels|safe }},
         datasets: [
           {
             label: 'Allure (min/km)',
-            data: {{ dashboard.laps_paces|safe }},
+            data: {{ dashboard.laps_chart_data | safe }},
+            parsing: { xAxisKey: 'lap', yAxisKey: 'pace' },
             borderColor: 'blue',
             yAxisID: 'y',
             fill: false,
@@ -56,7 +55,8 @@
           },
           {
             label: 'FC (bpm)',
-            data: {{ dashboard.points_fc|safe }},
+            data: {{ dashboard.points_chart_data | safe }},
+            parsing: { xAxisKey: 'point', yAxisKey: 'fc' },
             borderColor: 'red',
             yAxisID: 'y1',
             fill: false,
@@ -67,10 +67,11 @@
       },
       options: {
         responsive: true,
-        plugins: {
-          legend: { position: 'top' }
-        },
         scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: 'Progression' }
+          },
           y: {
             type: 'linear',
             position: 'left',
