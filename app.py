@@ -6,6 +6,7 @@ from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+import numpy as np
 
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
@@ -19,7 +20,6 @@ except KeyError:
 credentials = service_account.Credentials.from_service_account_info(
     service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
 drive_service = build('drive', 'v3', credentials=credentials)
-globals()['drive_service'] = drive_service
 
 def load_activities_from_drive():
     try:
@@ -72,25 +72,6 @@ def load_profile_from_drive():
         print("😥 Erreur download profile.json:", e)
         return {"birth_date": "", "weight": 0, "events": []}
 
-def save_profile_to_drive(profile):
-    with open('profile.json', 'w') as f:
-        json.dump(profile, f, indent=2)
-    try:
-        results = drive_service.files().list(
-            q=f"'{FOLDER_ID}' in parents and name='profile.json' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute()
-        files = results.get('files', [])
-        if files:
-            file_id = files[0]['id']
-            media = MediaFileUpload('profile.json', mimetype='application/json')
-            drive_service.files().update(fileId=file_id, media_body=media).execute()
-        else:
-            file_metadata = {'name': 'profile.json', 'parents': [FOLDER_ID]}
-            media = MediaFileUpload('profile.json', mimetype='application/json')
-            drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    except Exception as e:
-        print("😥 Erreur upload profile.json:", e)
-
 def compute_dashboard_data(activities, profile):
     activities.sort(key=lambda x: x.get("date"))
     last_activity = activities[-1]
@@ -114,17 +95,18 @@ def compute_dashboard_data(activities, profile):
     k_moy = sum(k_all) / len(k_all) if k_all else None
     gain_alt = points[-1].get("alt",0) - points[0].get("alt",0) if points[0].get("alt") is not None else 0
 
-    # Calcul allure par points pour FC
-    points_fc = [p.get("hr") for p in points]
+    # Courbe interpolée allure (laps) sur longueur des points
+    lap_paces = [lap.get("pace_velocity") for lap in laps]
+    n_points = len(points)
+    laps_pace_per_point = np.interp(
+        np.linspace(0, len(laps)-1, n_points),
+        np.arange(len(laps)),
+        lap_paces
+    ).tolist()
 
-    # Construire allure "étirée" sur les points selon les laps
-    laps_pace_per_point = []
-    points_per_lap = len(points) // len(laps) if laps else 1
-    for lap in laps:
-        laps_pace_per_point += [lap.get("pace_velocity")] * points_per_lap
-    # compléter au total
-    while len(laps_pace_per_point) < len(points):
-        laps_pace_per_point.append(laps[-1].get("pace_velocity"))
+    # FC et altitude par point
+    points_fc = [p.get("hr") for p in points]
+    points_alt = [p.get("alt") for p in points]
 
     return {
         "date": datetime.strptime(last_activity.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
@@ -137,9 +119,9 @@ def compute_dashboard_data(activities, profile):
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
         "laps_pace_per_point": json.dumps(laps_pace_per_point),
-        "points_fc": json.dumps(points_fc)
+        "points_fc": json.dumps(points_fc),
+        "points_alt": json.dumps(points_alt)
     }
-
 
 @app.route("/")
 def index():
