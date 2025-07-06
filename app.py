@@ -23,7 +23,7 @@ credentials = service_account.Credentials.from_service_account_info(
 drive_service = build('drive', 'v3', credentials=credentials)
 
 # -------------------
-# Fonctions helpers
+# Fonctions helpers Google Drive
 # -------------------
 def load_activities_from_drive():
     try:
@@ -96,13 +96,87 @@ def save_profile_to_drive(profile):
     except Exception as e:
         print("Erreur upload profile.json:", e)
 
+def load_prompt_from_drive():
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='prompt.txt' and trashed=false",
+            spaces='drive', fields='files(id, name)'
+        ).execute()
+        files = results.get('files', [])
+        if not files:
+            return "Donne directement le JSON des objectifs."
+        file_id = files[0]['id']
+        request_file = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request_file)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        return fh.read().decode()
+    except Exception as e:
+        print("Erreur chargement prompt:", e)
+        return "Donne directement le JSON des objectifs."
+
+def save_objectives_to_drive(objectives):
+    with open('objectives.json', 'w') as f:
+        json.dump(objectives, f, indent=2)
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='objectives.json' and trashed=false",
+            spaces='drive', fields='files(id, name)'
+        ).execute()
+        files = results.get('files', [])
+        if files:
+            file_id = files[0]['id']
+            media = MediaFileUpload('objectives.json', mimetype='application/json')
+            drive_service.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            file_metadata = {'name': 'objectives.json', 'parents': [FOLDER_ID]}
+            media = MediaFileUpload('objectives.json', mimetype='application/json')
+            drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    except Exception as e:
+        print("Erreur upload objectives.json:", e)
+
+# -------------------
+# Routine OpenAI
+# -------------------
+from openai import OpenAI
+client = OpenAI()
+
+from datetime import datetime
+
+def generate_objectives(profile, prompt_template):
+    context_data = {
+        "birth_date": profile.get("birth_date"),
+        "weight": profile.get("weight"),
+        "global_objective": profile.get("global_objective", ""),
+        "particular_objective": profile.get("particular_objective", ""),
+        "events": profile.get("events", [])
+    }
+    final_prompt = prompt_template + "\n\nVoici les données JSON :\n" + json.dumps(context_data, indent=2)
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "user", "content": final_prompt}
+        ]
+    )
+
+    try:
+        content = response.choices[0].message.content
+        objectives = json.loads(content)
+        # ⬇️ ajouter la date du calcul
+        objectives['generated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return objectives
+    except Exception as e:
+        print("Erreur parsing JSON GPT:", e)
+        return {"error": "Impossible de parser la réponse GPT", "raw": content}
+
 # -------------------
 # Dashboard principal
 # -------------------
 def compute_dashboard_data(activities, profile):
-    from datetime import datetime
-    import json
-
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     points = last.get("points", [])
@@ -120,10 +194,9 @@ def compute_dashboard_data(activities, profile):
     k_moy = sum(k_vals)/len(k_vals) if k_vals else "-"
 
     half = len(points)//2
-    # correction dérive cardiaque pour l'altitude : on retire 0.1 bpm par mètre de gain alt depuis le départ
     fc_first = [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[:half] if p.get("hr")]
     fc_second= [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[half:] if p.get("hr")]
-    deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/ (sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
+    deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/(sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
 
     gain_alt = points[-1]["alt"] - points[0]["alt"] if points[0].get("alt") else 0
 
@@ -131,10 +204,9 @@ def compute_dashboard_data(activities, profile):
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"] - points[0]["alt"] for p in points]
 
-    # Allure en blocs fixes de 500 m
     allure_curve = []
     bloc_start_idx = 0
-    next_bloc_dist = 500  # bloc distance en m (peut descendre à 200 pour plus de détails)
+    next_bloc_dist = 500
     last_allure = None
 
     for i, p in enumerate(points):
@@ -143,7 +215,7 @@ def compute_dashboard_data(activities, profile):
             bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
             bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
             if bloc_dist > 0:
-                allure = (bloc_time / 60) / (bloc_dist / 1000)  # min/km
+                allure = (bloc_time / 60) / (bloc_dist / 1000)
                 last_allure = allure
             for _ in bloc_points:
                 allure_curve.append(last_allure)
@@ -153,7 +225,6 @@ def compute_dashboard_data(activities, profile):
     while len(allure_curve) < len(points):
         allure_curve.append(last_allure)
 
-    # pas d'exclusion des 300 m pour garder la FC dès le début
     return {
         "date": datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
         "distance_km": round(total_dist,2),
@@ -169,8 +240,6 @@ def compute_dashboard_data(activities, profile):
         "points_fc": json.dumps(points_fc),
         "points_alt": json.dumps(points_alt)
     }
-
-
 
 # -------------------
 # Routes Flask
@@ -190,11 +259,23 @@ def profile():
     if request.method == 'POST':
         profile['birth_date'] = request.form['birth_date']
         profile['weight'] = float(request.form['weight'])
-        events = [{"date": d, "name": n} for d,n in zip(request.form.getlist('event_date'), request.form.getlist('event_name')) if d and n]
+        profile['global_objective'] = request.form.get('global_objective', '')
+        profile['particular_objective'] = request.form.get('particular_objective', '')
+        events = [{"date": d, "name": n} 
+                  for d, n in zip(request.form.getlist('event_date'), 
+                                  request.form.getlist('event_name')) if d and n]
         profile['events'] = events
         save_profile_to_drive(profile)
-        return redirect('/') 
+        return redirect('/')
     return render_template('profile.html', profile=profile)
+
+@app.route("/generate_plan")
+def generate_plan():
+    profile = load_profile_from_drive()
+    prompt_template = load_prompt_from_drive()
+    objectives = generate_objectives(profile, prompt_template)
+    save_objectives_to_drive(objectives)
+    return f"<pre>{json.dumps(objectives, indent=2, ensure_ascii=False)}</pre>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

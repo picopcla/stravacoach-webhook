@@ -8,11 +8,15 @@
     body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0;}
     .container { max-width:600px; margin:2rem auto; background:white; padding:2rem; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1);}
     label { display:block; margin-top:1rem;}
-    input { width:100%; padding:8px; margin-top:5px; box-sizing:border-box;}
+    input, textarea { width:100%; padding:8px; margin-top:5px; box-sizing:border-box;}
     table { width:100%; margin-top:1rem; border-collapse:collapse;}
     th,td { border:1px solid #ddd; padding:8px;}
     .btn { display:block; width:100%; text-align:center; background:#28a745; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1.5rem;}
     .btn:hover { background:#218838;}
+    .btn-ia { background:#007bff; } /* bouton IA bleu */
+    .btn-ia:hover { background:#0069d9; }
+    .row { display: flex; gap: 1rem; margin-top: 1rem; }
+    .col { flex: 1; }
   </style>
 </head>
 <body>
@@ -22,12 +26,25 @@
       <label>Date de naissance
         <input type="date" name="birth_date" value="{{ profile.birth_date }}" onchange="updateAge(this.value)">
       </label>
-      <label>Âge
-        <input type="text" id="age" readonly>
-      </label>
-      <label>Poids (kg)
-        <input type="number" step="0.1" name="weight" value="{{ profile.weight }}">
-      </label>
+      <div class="row">
+        <div class="col">
+          <label>Âge
+            <input type="text" id="age" readonly>
+          </label>
+          <label>Poids (kg)
+            <input type="number" step="0.1" name="weight" value="{{ profile.weight }}">
+          </label>
+        </div>
+        <div class="col">
+          <label>Objectif global
+            <input type="text" name="global_objective" value="{{ profile.get('global_objective', '') }}">
+          </label>
+          <label>Objectif particulier
+            <input type="text" name="particular_objective" value="{{ profile.get('particular_objective', '') }}">
+          </label>
+        </div>
+      </div>
+
       <h3>Événements à venir</h3>
       <table id="eventsTable">
         <tr><th>Date</th><th>Événement</th></tr>
@@ -45,6 +62,9 @@
       <a href="#" class="btn" onclick="addRow(); return false;">➕ Ajouter événement</a>
       <button class="btn" type="submit">💾 Enregistrer</button>
     </form>
+
+    <!-- bouton IA à part -->
+    <a href="/generate_plan" class="btn btn-ia">📊 Calculer les objectifs IA</a>
   </div>
 
   <script>
