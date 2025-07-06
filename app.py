@@ -151,10 +151,10 @@ def compute_dashboard_data(activities, profile):
         allure_curve.append(last_allure)
 
     # Exclure les 300 premiers mètres sur le graphique
-    filtered_labels = [l for l, p in zip(labels, points) if p["distance"] >= 300]
-    filtered_fc = [fc for fc, p in zip(points_fc, points) if p["distance"] >= 300]
-    filtered_alt = [alt for alt, p in zip(points_alt, points) if p["distance"] >= 300]
-    filtered_allure = [al for al, p in zip(allure_curve, points) if p["distance"] >= 300]
+    filtered_labels = [l for l, p in zip(labels, points) if p["distance"] >= 0]
+    filtered_fc = [fc for fc, p in zip(points_fc, points) if p["distance"] >= 0]
+    filtered_alt = [alt for alt, p in zip(points_alt, points) if p["distance"] >= 0]
+    filtered_allure = [al for al, p in zip(allure_curve, points) if p["distance"] >= 0]
 
     return {
         "date": datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),

@@ -1,12 +1,22 @@
 {
-  "age": 52,
-  "poids": 78,
-  "objectifs": "semi <2h",
+  "birth_date": "1973-11-21",
+  "weight": 78.0,
   "events": [
     {
-      "date": "2025-06-25",
-      "note": "déchiruer ischio droit"
+      "date": "2025-06-13",
+      "name": "Dechirure ischio gauche"
+    },
+    {
+      "date": "2025-06-28",
+      "name": "Toujours gene apres 5km"
+    },
+    {
+      "date": "2025-07-05",
+      "name": "Plus de gene sur 5km"
+    },
+    {
+      "date": "2025-07-06",
+      "name": "Petite gene a 8 km"
     }
-    
   ]
 }
