@@ -4,32 +4,87 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>StravaCoach - Dashboard</title>
+<link rel="icon" href="{{ url_for('static', filename='icons/icon-192.png') }}" type="image/png">
 <style>
   body { font-family: Arial, sans-serif; background:#f5f5f5; }
   .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-  h1,h2 { text-align:center; }
-  table { width:100%; margin-top:1rem; border-collapse:collapse; }
-  th,td { padding:8px; border-bottom:1px solid #ddd; text-align:left; }
+  .header {
+    background-color: #ef4423;
+    padding: 0.2rem 0.8rem;
+    border-radius: 8px;
+    text-align: center;
+  }
+  .header h1 {
+    color: white;
+    margin: 0;
+    font-size: 2rem;
+  }
+  .header img {
+    height: 50px;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  .sub-header {
+    background-color: #f47a50;
+    padding: 0.2rem 0.8rem;
+    border-radius: 8px;
+    text-align: center;
+    margin: 2rem auto;
+  }
+  .sub-header h2 {
+    color: white;
+    margin: 0;
+    font-size: 1.2rem;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem 2rem;
+    margin-top: 1rem;
+  }
+  .stats-grid div {
+    text-align: left;
+  }
+  .stats-grid .value {
+    font-size: 1rem;
+    font-weight: bold;
+  }
+  .stats-grid small {
+    display: block;
+    font-size: 0.7rem;
+    color: #666;
+  }
   canvas { width:100%; height:auto; margin-top:2rem; }
   .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>🏃‍♂️ StravaCoach</h1>
-  <table>
-    <tr><th>Date</th><td>{{ dashboard.date }}</td></tr>
-    <tr><th>Distance</th><td>{{ dashboard.distance_km }} km</td></tr>
-    <tr><th>Durée</th><td>{{ dashboard.duration_min }} min</td></tr>
-    <tr><th>Allure</th><td>{{ dashboard.allure }} min/km</td></tr>
-    <tr><th>FC Moy</th><td>{{ dashboard.fc_moy }}</td></tr>
-    <tr><th>FC Max</th><td>{{ dashboard.fc_max }}</td></tr>
-    <tr><th>k Moy</th><td>{{ dashboard.k_moy }}</td></tr>
-    <tr><th>Dérive Cardiaque</th><td>{{ dashboard.deriv_cardio }} %</td></tr>
-    <tr><th>Gain Alt</th><td>{{ dashboard.gain_alt }} m</td></tr>
-  </table>
+  <div class="header">
+    <h1>
+      <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
+      StravaCoach
+    </h1>
+  </div>
 
-  <h2>Allure, FC & Élévation</h2>
+  <div class="stats-grid">
+    <div><small>Distance</small><div class="value">{{ dashboard.distance_km }} km</div></div>
+    <div><small>FC Moy</small><div class="value">{{ dashboard.fc_moy }}</div></div>
+    <div><small>Dérive Cardiaque</small><div class="value">{{ dashboard.deriv_cardio }} %</div></div>
+
+    <div><small>Allure</small><div class="value">{{ dashboard.allure }} /km</div></div>
+    <div><small>FC Max</small><div class="value">{{ dashboard.fc_max }}</div></div>
+    <div><small>Gain Alt</small><div class="value">{{ dashboard.gain_alt }} m</div></div>
+
+    <div><small>Temps</small><div class="value">{{ dashboard.duration_min }} min</div></div>
+    <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
+    <div><small>Date</small><div class="value">{{ dashboard.date }}</div></div>
+  </div>
+
+  <div class="sub-header">
+    <h2>Allure, FC & Élévation</h2>
+  </div>
+  
   <canvas id="chartGlobal"></canvas>
 
   <a class="btn" href="/profile">⚙️ Profil & Événements</a>
@@ -50,7 +105,7 @@ const chart = new Chart(ctx, {
         borderWidth:1.5,
         yAxisID:'y',
         fill:false,
-        tension:0.,
+        tension:0.8,
         pointRadius:0
       },
       { 
@@ -90,13 +145,56 @@ const chart = new Chart(ctx, {
       }
     },
     scales: {
-      y: { type:'linear', position:'left', min:3.5 },
-      y1:{ type:'linear', position:'right', min:0, grid:{drawOnChartArea:false}},
-      y2:{ type:'linear', position:'right', min:-30, max:60, grid:{drawOnChartArea:false}}
+      x: {
+        ticks: {
+          callback: function(value, index, ticks) {
+            return parseFloat(this.getLabelForValue(value)).toFixed(1);
+          }
+        },
+        grid: {
+          drawOnChartArea: true,
+          color: function(context) {
+            return context.tick && context.tick.value % 5 === 0 ? 'rgba(0,0,0,0.1)' : 'transparent';
+          }
+        },
+        title: {
+          display: true,
+          text: 'Distance (km)'
+        }
+      },
+      y: {
+        type:'linear',
+        position:'left',
+        min:3.5,
+        title: {
+          display: true,
+          text: 'Allure (min/km)'
+        }
+      },
+      y1: {
+        type:'linear',
+        position:'right',
+        min:0,
+        grid:{drawOnChartArea:false},
+        title: {
+          display: true,
+          text: 'FC (bpm)'
+        }
+      },
+      y2: {
+        type:'linear',
+        position:'right',
+        min:-30,
+        max:60,
+        grid:{drawOnChartArea:false},
+        title: {
+          display: true,
+          text: 'Élévation (m)'
+        }
+      }
     }
   }
 });
 </script>
 </body>
 </html>
-

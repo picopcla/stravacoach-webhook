@@ -131,7 +131,7 @@ def compute_dashboard_data(activities, profile):
     # Allure en blocs fixes de 500 m
     allure_curve = []
     bloc_start_idx = 0
-    next_bloc_dist = 500  # premier bloc à 500 m
+    next_bloc_dist = 200  # premier bloc à 200 m
     last_allure = None
 
     for i, p in enumerate(points):
