@@ -8,79 +8,22 @@
 <style>
   body { font-family: Arial, sans-serif; background:#f5f5f5; }
   .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-  .header {
-    background-color: #ef4423;
-    padding: 0.5rem 0.8rem;
-    border-radius: 8px;
-    position: relative;
-    text-align: left;
-  }
-  .header h1 {
-    color: white;
-    margin: 0;
-    font-size: 2rem;
-    display: inline-flex;
-    align-items: center;
-  }
-  .header img {
-    height: 50px;
-    vertical-align: middle;
-    margin-right: 8px;
-  }
-  .powered {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    font-size: 0.6em;
-    color: white;
-  }
-  .type-coaching {
-    color: white;
-    font-weight: bold;
-    font-size: 1rem;
-    margin-left: 58px;
-    margin-top: 0.2rem;
-  }
-  .objectives {
-    background-color: #f47a50;
-    color: white;
-    font-weight: bold;
-    font-size: 0.9rem;
-    text-align: center;
-    border-radius: 6px;
-    padding: 0.3rem;
-    margin: 0.5rem 0;
-  }
-  .sub-header {
-    background-color: #f47a50;
-    padding: 0.2rem 0.8rem;
-    border-radius: 8px;
-    text-align: center;
-    margin: 2rem auto;
-  }
-  .sub-header h2 {
-    color: white;
-    margin: 0;
-    font-size: 1.2rem;
-  }
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem 2rem;
-    margin-top: 1rem;
-  }
-  .stats-grid div {
-    text-align: left;
-  }
-  .stats-grid .value {
-    font-size: 1rem;
-    font-weight: bold;
-  }
-  .stats-grid small {
-    display: block;
-    font-size: 0.7rem;
-    color: #666;
-  }
+  .header { background-color: #ef4423; padding: 0.5rem 0.8rem; border-radius: 8px; position: relative; text-align: left; }
+  .header h1 { color: white; margin: 0; font-size: 2rem; display: inline-flex; align-items: center; }
+  .header img { height: 50px; vertical-align: middle; margin-right: 8px; }
+  .powered { position: absolute; top: 8px; right: 10px; font-size: 0.6em; color: white; }
+  .type-coaching { color: white; font-weight: bold; font-size: 1rem; margin-left: 58px; margin-top: 0.2rem; }
+  .objectives, .short-term-comment { background-color: #f47a50; color: white; font-weight: bold; font-size: 0.9rem; text-align: center; border-radius: 6px; padding: 0.3rem; margin: 0.5rem 0; }
+  .short-term-comment { background-color: #eee; color: #333; font-style: italic; }
+  .next-runs table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  .next-runs th, .next-runs td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+  .next-runs th { background: #f47a50; color: white; }
+  .sub-header { background-color: #f47a50; padding: 0.2rem 0.8rem; border-radius: 8px; text-align: center; margin: 2rem auto; }
+  .sub-header h2 { color: white; margin: 0; font-size: 1.2rem; }
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem 2rem; margin-top: 1rem; }
+  .stats-grid div { text-align: left; }
+  .stats-grid .value { font-size: 1rem; font-weight: bold; }
+  .stats-grid small { display: block; font-size: 0.7rem; color: #666; }
   canvas { width:100%; height:auto; margin-top:2rem; }
   .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
 </style>
@@ -111,15 +54,42 @@
   </div>
   {% endif %}
 
+  {% if short_term and short_term.commentaire %}
+  <div class="short-term-comment">
+    📝 {{ short_term.commentaire }}
+  </div>
+  {% endif %}
+
+  {% if short_term and short_term.prochains_runs %}
+  <div class="next-runs">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Distance (km)</th>
+          <th>Allure cible</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for run in short_term.prochains_runs %}
+        <tr>
+          <td>{{ run.type }}</td>
+          <td>{{ run.distance }}</td>
+          <td>{{ run.allure }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="stats-grid">
     <div><small>Distance</small><div class="value">{{ dashboard.distance_km }} km</div></div>
     <div><small>FC Moy</small><div class="value">{{ dashboard.fc_moy }}</div></div>
     <div><small>Dérive Cardiaque</small><div class="value">{{ dashboard.deriv_cardio }} %</div></div>
-
     <div><small>Allure</small><div class="value">{{ dashboard.allure }} /km</div></div>
     <div><small>FC Max</small><div class="value">{{ dashboard.fc_max }}</div></div>
     <div><small>Gain Alt</small><div class="value">{{ dashboard.gain_alt }} m</div></div>
-
     <div><small>Temps</small><div class="value">{{ dashboard.duration_min }} min</div></div>
     <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
     <div><small>Date</small><div class="value">{{ dashboard.date }}</div></div>
@@ -132,6 +102,7 @@
   <canvas id="chartGlobal"></canvas>
 
   <a class="btn" href="/profile">⚙️ Profil & Événements</a>
+  <a class="btn" href="/generate_short_term_plan">🔄 Recalculer coaching court terme</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -142,100 +113,23 @@ const chart = new Chart(ctx, {
   data: {
     labels: {{ dashboard.labels }},
     datasets: [
-      { 
-        label: 'Allure (min/km)', 
-        data: {{ dashboard.allure_curve }},
-        borderColor:'blue',
-        borderWidth:1.5,
-        yAxisID:'y',
-        fill:false,
-        tension:0.8,
-        pointRadius:0
-      },
-      { 
-        label: 'FC (bpm)', 
-        data: {{ dashboard.points_fc }},
-        borderColor:'red',
-        borderWidth:1.5,
-        yAxisID:'y1',
-        fill:false,
-        tension:0.4,
-        pointRadius:0
-      },
-      { 
-        label: 'Élévation (m)', 
-        data: {{ dashboard.points_alt }},
-        borderColor:'green',
-        borderWidth:1.5,
-        yAxisID:'y2',
-        backgroundColor:'rgba(0,255,0,0.2)',
-        fill:'origin',
-        tension:0.,
-        pointRadius:0
-      }
+      { label: 'Allure (min/km)', data: {{ dashboard.allure_curve }}, borderColor:'blue', borderWidth:1.5, yAxisID:'y', fill:false, tension:0.8, pointRadius:0 },
+      { label: 'FC (bpm)', data: {{ dashboard.points_fc }}, borderColor:'red', borderWidth:1.5, yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
+      { label: 'Élévation (m)', data: {{ dashboard.points_alt }}, borderColor:'green', borderWidth:1.5, yAxisID:'y2', backgroundColor:'rgba(0,255,0,0.2)', fill:'origin', tension:0., pointRadius:0 }
     ]
   },
   options: {
     responsive:true,
-    plugins: {
-      legend: {
-        position:'bottom',
-        labels: {
-          usePointStyle: true,
-          pointStyle: 'line',
-          boxWidth: 30,
-          borderWidth: 1.5
-        }
-      }
-    },
+    plugins: { legend: { position:'bottom', labels: { usePointStyle: true, pointStyle: 'line', boxWidth: 30, borderWidth: 1.5 }}},
     scales: {
       x: {
-        ticks: {
-          callback: function(value, index, ticks) {
-            return parseFloat(this.getLabelForValue(value)).toFixed(1);
-          }
-        },
-        grid: {
-          drawOnChartArea: true,
-          color: function(context) {
-            return context.tick && context.tick.value % 5 === 0 ? 'rgba(0,0,0,0.1)' : 'transparent';
-          }
-        },
-        title: {
-          display: true,
-          text: 'Distance (km)'
-        }
+        ticks: { callback: function(value) { return parseFloat(this.getLabelForValue(value)).toFixed(1); }},
+        grid: { drawOnChartArea: true, color: function(context) { return context.tick && context.tick.value % 5 === 0 ? 'rgba(0,0,0,0.1)' : 'transparent'; }},
+        title: { display: true, text: 'Distance (km)' }
       },
-      y: {
-        type:'linear',
-        position:'left',
-        min:3.5,
-        title: {
-          display: true,
-          text: 'Allure (min/km)'
-        }
-      },
-      y1: {
-        type:'linear',
-        position:'right',
-        min:0,
-        grid:{drawOnChartArea:false},
-        title: {
-          display: true,
-          text: 'FC (bpm)'
-        }
-      },
-      y2: {
-        type:'linear',
-        position:'right',
-        min:-30,
-        max:60,
-        grid:{drawOnChartArea:false},
-        title: {
-          display: true,
-          text: 'Élévation (m)'
-        }
-      }
+      y: { type:'linear', position:'left', min:3.5, title: { display: true, text: 'Allure (min/km)' }},
+      y1: { type:'linear', position:'right', min:0, grid:{drawOnChartArea:false}, title: { display: true, text: 'FC (bpm)' }},
+      y2: { type:'linear', position:'right', min:-30, max:60, grid:{drawOnChartArea:false}, title: { display: true, text: 'Élévation (m)' }}
     }
   }
 });
