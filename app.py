@@ -118,10 +118,13 @@ def compute_dashboard_data(activities, profile):
     fc_max = max(hr_vals) if hr_vals else "-"
     k_vals = [(p["hr"] / (p["vel"]*3.6)) for p in points if p.get("hr") and p.get("vel")]
     k_moy = sum(k_vals)/len(k_vals) if k_vals else "-"
+
     half = len(points)//2
-    fc_first = [p["hr"] for p in points[:half] if p.get("hr")]
-    fc_second= [p["hr"] for p in points[half:] if p.get("hr")]
+    # correction dérive cardiaque pour l'altitude : on retire 0.1 bpm par mètre de gain alt depuis le départ
+    fc_first = [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[:half] if p.get("hr")]
+    fc_second= [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[half:] if p.get("hr")]
     deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/ (sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
+
     gain_alt = points[-1]["alt"] - points[0]["alt"] if points[0].get("alt") else 0
 
     labels = [round(p["distance"]/1000, 3) for p in points]
@@ -131,7 +134,7 @@ def compute_dashboard_data(activities, profile):
     # Allure en blocs fixes de 500 m
     allure_curve = []
     bloc_start_idx = 0
-    next_bloc_dist = 200  # premier bloc à 200 m
+    next_bloc_dist = 500  # bloc distance en m (peut descendre à 200 pour plus de détails)
     last_allure = None
 
     for i, p in enumerate(points):
@@ -150,12 +153,7 @@ def compute_dashboard_data(activities, profile):
     while len(allure_curve) < len(points):
         allure_curve.append(last_allure)
 
-    # Exclure les 300 premiers mètres sur le graphique
-    filtered_labels = [l for l, p in zip(labels, points) if p["distance"] >= 0]
-    filtered_fc = [fc for fc, p in zip(points_fc, points) if p["distance"] >= 0]
-    filtered_alt = [alt for alt, p in zip(points_alt, points) if p["distance"] >= 0]
-    filtered_allure = [al for al, p in zip(allure_curve, points) if p["distance"] >= 0]
-
+    # pas d'exclusion des 300 m pour garder la FC dès le début
     return {
         "date": datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
         "distance_km": round(total_dist,2),
@@ -166,11 +164,12 @@ def compute_dashboard_data(activities, profile):
         "k_moy": round(k_moy,1) if k_moy else "-",
         "deriv_cardio": round(deriv_cardio,1) if deriv_cardio else "-",
         "gain_alt": round(gain_alt,1),
-        "labels": json.dumps(filtered_labels),
-        "allure_curve": json.dumps(filtered_allure),
-        "points_fc": json.dumps(filtered_fc),
-        "points_alt": json.dumps(filtered_alt)
+        "labels": json.dumps(labels),
+        "allure_curve": json.dumps(allure_curve),
+        "points_fc": json.dumps(points_fc),
+        "points_alt": json.dumps(points_alt)
     }
+
 
 
 # -------------------
@@ -194,7 +193,7 @@ def profile():
         events = [{"date": d, "name": n} for d,n in zip(request.form.getlist('event_date'), request.form.getlist('event_name')) if d and n]
         profile['events'] = events
         save_profile_to_drive(profile)
-        return redirect('/profile')
+        return redirect('/') 
     return render_template('profile.html', profile=profile)
 
 if __name__ == "__main__":
