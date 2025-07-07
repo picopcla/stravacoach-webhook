@@ -87,7 +87,7 @@ def enrich_activities(activities):
             continue
 
         # -----------------
-        # Calcul k propre
+        # Calcul k
         hr_vals = [p["hr"] for p in points if p.get("hr")]
         vel_vals = [p["vel"] for p in points if p.get("vel")]
         fc_moy = sum(hr_vals) / len(hr_vals) if hr_vals else 0
@@ -96,12 +96,21 @@ def enrich_activities(activities):
         k_moy = 0.43 * (fc_moy / allure_min_km) - 5.19 if allure_min_km > 0 else "-"
 
         # -----------------
-        # Calcul dérive cardio par tiers
+        # Dérive cardio normalisée par allure
         n = len(points)
         third = n // 3
+        # Premier tiers
         fc_first = sum(p["hr"] for p in points[:third] if p.get("hr")) / third
+        vel_first = sum(p["vel"] for p in points[:third] if p.get("vel")) / third
+        allure_first = (1 / vel_first) * 16.6667 if vel_first > 0 else 0
+        ratio_first = fc_first / allure_first if allure_first > 0 else 0
+        # Dernier tiers
         fc_last = sum(p["hr"] for p in points[-third:] if p.get("hr")) / third
-        deriv_cardio = (fc_last / fc_first) if fc_first > 0 else "-"
+        vel_last = sum(p["vel"] for p in points[-third:] if p.get("vel")) / third
+        allure_last = (1 / vel_last) * 16.6667 if vel_last > 0 else 0
+        ratio_last = fc_last / allure_last if allure_last > 0 else 0
+        # Dérive cardio corrigée
+        deriv_cardio = (ratio_last / ratio_first) if ratio_first > 0 else "-"
 
         # -----------------
         # Blocs pour fractionné
@@ -128,12 +137,15 @@ def enrich_activities(activities):
         total_dist = points[-1]["distance"] / 1000
         type_sortie = "fractionné" if alternances >= 2 else ("longue" if total_dist >= 11 else "fond")
 
+        # -----------------
+        # Mise à jour activité
         activity.update({
             "type_sortie": type_sortie,
             "k_moy": round(k_moy, 2) if isinstance(k_moy, float) else "-",
             "deriv_cardio": round(deriv_cardio, 2) if isinstance(deriv_cardio, float) else "-"
         })
     return activities
+
 
 # -------------------
 # Dashboard principal
