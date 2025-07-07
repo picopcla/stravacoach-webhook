@@ -82,19 +82,29 @@ def load_short_term_objectives(): return load_file_from_drive('short_term_object
 def enrich_activities(activities):
     for activity in activities:
         points = activity.get("points", [])
-        if not points or len(points) < 5:
+        if not points or len(points) < 6:
             activity.update({"type_sortie": "inconnue", "k_moy": "-", "deriv_cardio": "-"})
             continue
 
-        total_dist = points[-1]["distance"] / 1000
-        k_vals = [(p["hr"] / (p["vel"]*3.6)) for p in points if p.get("hr") and p.get("vel")]
-        k_moy = sum(k_vals)/len(k_vals) if k_vals else "-"
+        # -----------------
+        # Calcul k propre
+        hr_vals = [p["hr"] for p in points if p.get("hr")]
+        vel_vals = [p["vel"] for p in points if p.get("vel")]
+        fc_moy = sum(hr_vals) / len(hr_vals) if hr_vals else 0
+        vel_moy = sum(vel_vals) / len(vel_vals) if vel_vals else 0
+        allure_min_km = (1 / vel_moy) * 16.6667 if vel_moy > 0 else 0
+        k_moy = 0.43 * (fc_moy / allure_min_km) - 5.19 if allure_min_km > 0 else "-"
 
-        half = len(points)//2
-        fc_first = [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[:half] if p.get("hr")]
-        fc_second= [(p["hr"] - (p["alt"] - points[0]["alt"])*0.1) for p in points[half:] if p.get("hr")]
-        deriv_cardio = ((sum(fc_second)/len(fc_second) - sum(fc_first)/len(fc_first))/(sum(fc_first)/len(fc_first))*100) if fc_first and fc_second else "-"
+        # -----------------
+        # Calcul dérive cardio par tiers
+        n = len(points)
+        third = n // 3
+        fc_first = sum(p["hr"] for p in points[:third] if p.get("hr")) / third
+        fc_last = sum(p["hr"] for p in points[-third:] if p.get("hr")) / third
+        deriv_cardio = (fc_last / fc_first) if fc_first > 0 else "-"
 
+        # -----------------
+        # Blocs pour fractionné
         blocs, bloc_start_idx, next_bloc_dist = [], 0, 500
         for i, p in enumerate(points):
             if p["distance"] >= next_bloc_dist or i == len(points) - 1:
@@ -115,7 +125,9 @@ def enrich_activities(activities):
             else:
                 faster = False
 
+        total_dist = points[-1]["distance"] / 1000
         type_sortie = "fractionné" if alternances >= 2 else ("longue" if total_dist >= 11 else "fond")
+
         activity.update({
             "type_sortie": type_sortie,
             "k_moy": round(k_moy, 2) if isinstance(k_moy, float) else "-",
@@ -130,7 +142,8 @@ def compute_dashboard_data(activities):
     activities.sort(key=lambda x: x.get("date"))
     last = activities[-1]
     points = last.get("points", [])
-    if not points: return {}
+    if not points:
+        return {}
 
     total_dist = points[-1]["distance"] / 1000
     total_time = (points[-1]["time"] - points[0]["time"]) / 60
@@ -150,7 +163,8 @@ def compute_dashboard_data(activities):
                 last_allure = (bloc_time / 60) / (bloc_dist / 1000)
             allure_curve.extend([last_allure]*len(bloc_points))
             bloc_start_idx, next_bloc_dist = i+1, next_bloc_dist+500
-    while len(allure_curve) < len(points): allure_curve.append(last_allure)
+    while len(allure_curve) < len(points):
+        allure_curve.append(last_allure)
 
     return {
         "type_sortie": last.get("type_sortie", "-"),
@@ -166,8 +180,13 @@ def compute_dashboard_data(activities):
         "labels": json.dumps(labels),
         "allure_curve": json.dumps(allure_curve),
         "points_fc": json.dumps(points_fc),
-        "points_alt": json.dumps(points_alt)
+        "points_alt": json.dumps(points_alt),
+        "history_dates": json.dumps([a["date"][:10] for a in activities if a.get("k_moy") != "-"]),
+        "history_k": json.dumps([a["k_moy"] for a in activities if a.get("k_moy") != "-"]),
+        "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
+
+
 
 # -------------------
 # Routes Flask
