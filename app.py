@@ -5,12 +5,13 @@ import os
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload, MediaIoBaseUpload
 from openai import OpenAI
 
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
 client = OpenAI()
+print("✅ DÉMARRAGE APP.PY")
 
 # -------------------
 # Auth Google Drive
@@ -24,6 +25,7 @@ credentials = service_account.Credentials.from_service_account_info(
     service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
 drive_service = build('drive', 'v3', credentials=credentials)
 
+print("✅ Lecture Google Credentials OK")
 # -------------------
 # Generic helpers pour Drive
 # -------------------
@@ -66,6 +68,24 @@ def save_file_to_drive(local_file, drive_file, mime='application/json'):
             drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
     except Exception as e:
         print(f"Erreur upload {drive_file}:", e)
+        
+def upload_json_content_to_drive(json_data, drive_file_name):
+    fh = io.BytesIO()
+    fh.write(json.dumps(json_data, indent=2).encode("utf-8"))
+    fh.seek(0)
+    results = drive_service.files().list(
+        q=f"'{FOLDER_ID}' in parents and name='{drive_file_name}' and trashed=false",
+        spaces='drive', fields='files(id, name)').execute()
+    files = results.get('files', [])
+    media = MediaIoBaseUpload(fh, mimetype='application/json')
+    if files:
+        file_id = files[0]['id']
+        drive_service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        metadata = {'name': drive_file_name, 'parents': [FOLDER_ID]}
+        drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
+
+print("✅ Helpers OK")
 
 # -------------------
 # Spécifiques
@@ -76,18 +96,46 @@ def load_objectives(): return load_file_from_drive('objectives.json') or {}
 def load_short_term_prompt_from_drive(): return load_file_from_drive('short_term_prompt.txt') or "Donne directement le JSON des objectifs à court terme."
 def load_short_term_objectives(): return load_file_from_drive('short_term_objectives.json') or {}
 
-# -------------------
-# Enrichir activités avec type_sortie, k_moy, deriv_cardio
-# -------------------
 def enrich_activities(activities):
     for activity in activities:
         points = activity.get("points", [])
-        if not points or len(points) < 6:
-            activity.update({"type_sortie": "inconnue", "k_moy": "-", "deriv_cardio": "-"})
+        force = activity.get("force_recompute", False)
+
+        # Si déjà enrichi et pas de force_recompute, on saute
+        if not force and activity.get("type_sortie") not in [None, "-", "inconnue"]:
             continue
 
-        # -----------------
-        # Calcul k
+        # Calcul de l'histogramme des allures tous les ~100m
+        pace_series = []
+        next_distance = 100
+        last_idx = 0
+        for i, p in enumerate(points):
+            if p["distance"] >= next_distance or i == len(points) -1:
+                delta_dist = p["distance"] - points[last_idx]["distance"]
+                delta_time = p["time"] - points[last_idx]["time"]
+                if delta_dist > 0:
+                    pace = (delta_time / 60) / (delta_dist / 1000)
+                    pace_series.append(round(pace, 2))
+                next_distance += 100
+                last_idx = i
+
+        # Charger le template depuis ton Drive
+        prompt_template = load_file_from_drive("prompt_type.json").get("template", "")
+        prompt = prompt_template.replace("{pace_series}", str(pace_series))
+        upload_json_content_to_drive({"prompt": prompt}, "prompt_type_debug.json")
+
+        # Appeler OpenAI
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            detected_type = response.choices[0].message.content.strip().lower()
+        except Exception as e:
+            print("Erreur OpenAI:", e)
+            detected_type = "inconnue"
+
+        # Calcul k_moy et dérive cardio comme avant
         hr_vals = [p["hr"] for p in points if p.get("hr")]
         vel_vals = [p["vel"] for p in points if p.get("vel")]
         fc_moy = sum(hr_vals) / len(hr_vals) if hr_vals else 0
@@ -95,58 +143,34 @@ def enrich_activities(activities):
         allure_min_km = (1 / vel_moy) * 16.6667 if vel_moy > 0 else 0
         k_moy = 0.43 * (fc_moy / allure_min_km) - 5.19 if allure_min_km > 0 else "-"
 
-        # -----------------
-        # Dérive cardio normalisée par allure
         n = len(points)
         third = n // 3
-        # Premier tiers
         fc_first = sum(p["hr"] for p in points[:third] if p.get("hr")) / third
         vel_first = sum(p["vel"] for p in points[:third] if p.get("vel")) / third
         allure_first = (1 / vel_first) * 16.6667 if vel_first > 0 else 0
         ratio_first = fc_first / allure_first if allure_first > 0 else 0
-        # Dernier tiers
+
         fc_last = sum(p["hr"] for p in points[-third:] if p.get("hr")) / third
         vel_last = sum(p["vel"] for p in points[-third:] if p.get("vel")) / third
         allure_last = (1 / vel_last) * 16.6667 if vel_last > 0 else 0
         ratio_last = fc_last / allure_last if allure_last > 0 else 0
-        # Dérive cardio corrigée
+
         deriv_cardio = (ratio_last / ratio_first) if ratio_first > 0 else "-"
 
-        # -----------------
-        # Blocs pour fractionné
-        blocs, bloc_start_idx, next_bloc_dist = [], 0, 500
-        for i, p in enumerate(points):
-            if p["distance"] >= next_bloc_dist or i == len(points) - 1:
-                bloc_points = points[bloc_start_idx:i+1]
-                if len(bloc_points) > 1:
-                    bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
-                    bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
-                    if bloc_dist > 0:
-                        blocs.append((bloc_time / 60) / (bloc_dist / 1000))
-                bloc_start_idx, next_bloc_dist = i+1, next_bloc_dist+500
-
-        alternances, faster, avg_allure = 0, False, (sum(blocs)/len(blocs)) if blocs else 0
-        for allure in blocs:
-            if allure < avg_allure * 0.85:
-                if not faster:
-                    alternances += 1
-                    faster = True
-            else:
-                faster = False
-
-        total_dist = points[-1]["distance"] / 1000
-        type_sortie = "fractionné" if alternances >= 2 else ("longue" if total_dist >= 11 else "fond")
-
-        # -----------------
-        # Mise à jour activité
+        # Mettre à jour l'activité
         activity.update({
-            "type_sortie": type_sortie,
+            "type_sortie": detected_type,
             "k_moy": round(k_moy, 2) if isinstance(k_moy, float) else "-",
             "deriv_cardio": round(deriv_cardio, 2) if isinstance(deriv_cardio, float) else "-"
         })
+
+        # Nettoyer force_recompute
+        activity.pop("force_recompute", None)
+
     return activities
 
 
+print("✅ Activities OK")
 # -------------------
 # Dashboard principal
 # -------------------
@@ -198,7 +222,7 @@ def compute_dashboard_data(activities):
         "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
 
-
+print("✅ Dashboard OK")
 
 # -------------------
 # Routes Flask
@@ -206,13 +230,12 @@ def compute_dashboard_data(activities):
 @app.route("/")
 def index():
     activities = enrich_activities(load_activities())
-    with open('activities.json', 'w') as f:
-        json.dump(activities, f, indent=2)
-    save_file_to_drive('activities.json', 'activities.json')
+    upload_json_content_to_drive(activities, 'activities.json')
     return render_template("index.html",
         dashboard=compute_dashboard_data(activities),
         objectives=load_objectives(),
         short_term=load_short_term_objectives())
+
 
 @app.route('/profile', methods=['GET', 'POST'])
 def profile():
@@ -225,11 +248,10 @@ def profile():
             'particular_objective': request.form.get('particular_objective', ''),
             'events': [{"date": d, "name": n} for d, n in zip(request.form.getlist('event_date'), request.form.getlist('event_name')) if d and n]
         })
-        with open('profile.json', 'w') as f:
-            json.dump(profile, f, indent=2)
-        save_file_to_drive('profile.json', 'profile.json')
+        upload_json_content_to_drive(profile, 'profile.json')
         return redirect('/')
     return render_template('profile.html', profile=profile)
+
 
 @app.route("/generate_short_term_plan")
 def generate_short_term_plan():
@@ -252,10 +274,10 @@ def generate_short_term_plan():
     except Exception as e:
         print("Erreur parsing JSON GPT:", e)
         short_term_objectives = {"error": "Impossible de parser la réponse GPT", "raw": content}
-    with open('short_term_objectives.json', 'w') as f:
-        json.dump(short_term_objectives, f, indent=2, ensure_ascii=False)
-    save_file_to_drive('short_term_objectives.json', 'short_term_objectives.json')
+    upload_json_content_to_drive(short_term_objectives, 'short_term_objectives.json')
     return f"<pre>{json.dumps(short_term_objectives, indent=2, ensure_ascii=False)}</pre>"
+print("✅ Flask OK")
 
 if __name__ == "__main__":
+    print("✅ Lancement du serveur Flask...")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

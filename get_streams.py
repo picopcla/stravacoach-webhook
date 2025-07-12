@@ -196,7 +196,7 @@ process_activity(activity_id_arg)
 
 # ➡️ 2. Vérifier les dernières activités
 url = "https://www.strava.com/api/v3/athlete/activities"
-params = {"per_page": 50, "page": 1}
+params = {"per_page": 3, "page": 1}
 resp = requests.get(url, params=params, headers=headers)
 latest_activities = resp.json()
 
