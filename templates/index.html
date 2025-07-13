@@ -83,6 +83,10 @@
   </div>
   {% endif %}
 
+  {% if dashboard %}
+  <div class="sub-header">
+    <h2>Détails du dernier run</h2>
+  </div>
   <div class="stats-grid">
     <div><small>Distance</small><div class="value">{{ dashboard.distance_km }} km</div></div>
     <div><small>FC Moy</small><div class="value">{{ dashboard.fc_moy }}</div></div>
@@ -92,8 +96,8 @@
     <div><small>Gain Alt</small><div class="value">{{ dashboard.gain_alt }} m</div></div>
     <div><small>Temps</small><div class="value">{{ dashboard.duration_min }} min</div></div>
     <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
-    <div><small>Date</small><div class="value">{{ dashboard.date }}</div></div>
   </div>
+  {% endif %}
 
   <div class="sub-header">
     <h2>Allure, FC & Élévation</h2>
@@ -112,7 +116,7 @@
     <h2>Évolution dérive cardio</h2>
   </div>
   <p style="font-size:0.85rem; color:#555; text-align:center; margin-top:-1rem;">
-    Dérive cardio =  Mesure l’évolution de la charge cardio dans le temps, pendant un même run, doit rester proche de 1.
+    Dérive cardio = Mesure l’évolution de la charge cardio dans le temps, pendant un même run, doit rester proche de 1.
   </p>
   <canvas id="chartDrift"></canvas>
 
@@ -135,13 +139,9 @@ const chart = new Chart(ctx, {
   },
   options: {
     responsive:true,
-    plugins: { legend: { position:'bottom', labels: { usePointStyle: true, pointStyle: 'line', boxWidth: 30, borderWidth: 1.5 }}},
+    plugins: { legend: { position:'bottom' }},
     scales: {
-      x: {
-        ticks: { callback: function(value) { return parseFloat(this.getLabelForValue(value)).toFixed(1); }},
-        grid: { drawOnChartArea: true, color: function(context) { return context.tick && context.tick.value % 5 === 0 ? 'rgba(0,0,0,0.1)' : 'transparent'; }},
-        title: { display: true, text: 'Distance (km)' }
-      },
+      x: { title: { display: true, text: 'Distance (km)' }},
       y: { type:'linear', position:'left', min:3.5, title: { display: true, text: 'Allure (min/km)' }},
       y1: { type:'linear', position:'right', min:0, grid:{drawOnChartArea:false}, title: { display: true, text: 'FC (bpm)' }},
       y2: { type:'linear', position:'right', min:-30, max:60, grid:{drawOnChartArea:false}, title: { display: true, text: 'Élévation (m)' }}
@@ -155,13 +155,13 @@ const chartK = new Chart(ctxK, {
   data: {
     labels: {{ dashboard.history_dates | safe }},
     datasets: [{
-      label: 'k',
+      label: 'Efficacité Cardiaque (k)',
       data: {{ dashboard.history_k | safe }},
-      borderColor:'purple',
-      borderWidth:1.5,
-      fill:false,
-      tension:0.3,
-      pointRadius:3
+      borderColor: 'purple',
+      borderWidth: 1.5,
+      fill: false,
+      tension: 0.4,
+      pointRadius: 3
     }]
   },
   options: {
@@ -180,13 +180,13 @@ const chartDrift = new Chart(ctxDrift, {
   data: {
     labels: {{ dashboard.history_dates | safe }},
     datasets: [{
-      label: 'Dérive cardio',
+      label: 'Dérive Cardio',
       data: {{ dashboard.history_drift | safe }},
-      borderColor:'orange',
-      borderWidth:1.5,
-      fill:false,
-      tension:0.3,
-      pointRadius:3
+      borderColor: 'orange',
+      borderWidth: 1.5,
+      fill: false,
+      tension: 0.4,
+      pointRadius: 3
     }]
   },
   options: {
@@ -194,7 +194,7 @@ const chartDrift = new Chart(ctxDrift, {
     plugins: { legend: { position:'bottom' }},
     scales: {
       x: { title: { display: true, text: 'Date' }},
-      y: { title: { display: true, text: 'FC dernier tiers / premier tiers' }}
+      y: { title: { display: true, text: 'Dérive cardio' }}
     }
   }
 });
