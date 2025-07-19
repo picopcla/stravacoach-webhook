@@ -102,9 +102,31 @@ def process_activity(activity_id):
     start_date = activity_data.get("start_date_local")
 
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
-    params = {"keys": "time,distance,heartrate,cadence,velocity_smooth,altitude,temp,moving", "key_by_type": "true"}
+    params = {
+        "keys": "time,distance,heartrate,cadence,velocity_smooth,altitude,temp,moving,latlng",
+        "key_by_type": "true"
+    }
     resp = requests.get(url_streams, params=params, headers=headers)
+
+    # Vérification du status de réponse
+    if resp.status_code != 200:
+        print(f"❌ Erreur HTTP {resp.status_code} pour activité {activity_id} (streams).")
+        return
+
+    # Analyse du contenu du stream
     streams = resp.json()
+
+    # Vérification de la présence du stream latlng
+    if "latlng" not in streams:
+        print(f"🚫 Pas de clé 'latlng' dans les streams de l'activité {activity_id}")
+        latlng = []
+    else:
+        latlng_data = streams["latlng"].get("data", [])
+        if not latlng_data:
+            print(f"⚠️ Clé 'latlng' présente mais vide pour activité {activity_id}")
+        else:
+            print(f"✅ latlng détecté pour activité {activity_id} avec {len(latlng_data)} points.")
+        latlng = latlng_data
 
     time_data = streams.get("time", {}).get("data", [])
     distance = streams.get("distance", {}).get("data", [])
@@ -127,12 +149,23 @@ def process_activity(activity_id):
         avg_vel = sum(velocity[j] for j in slice_range if velocity and j < len(velocity)) / len(slice_range) if velocity else None
         avg_alt = sum(altitude[j] for j in slice_range if altitude and j < len(altitude)) / len(slice_range) if altitude else None
 
+        # Moyenne latitude et longitude
+        avg_lat, avg_lng = None, None
+        if latlng:
+            lat_values = [latlng[j][0] for j in slice_range if j < len(latlng)]
+            lng_values = [latlng[j][1] for j in slice_range if j < len(latlng)]
+            if lat_values and lng_values:
+                avg_lat = sum(lat_values) / len(lat_values)
+                avg_lng = sum(lng_values) / len(lng_values)
+
         points.append({
             "time": point_time,
             "distance": avg_dist,
             "hr": avg_hr,
             "vel": avg_vel,
-            "alt": avg_alt
+            "alt": avg_alt,
+            "lat": avg_lat,
+            "lng": avg_lng
         })
 
     # ➡️ Filtrage direct : si pas de HR ou pas de vitesse valable, on ignore l'activité
@@ -152,6 +185,7 @@ def process_activity(activity_id):
     })
     existing_ids.add(activity_id)
     print(f"🚀 Activité {activity_id} ajoutée avec {len(points)} points.")
+
 
 # ----------------------------
 # ➡️ 1. Processer activité passée en argument

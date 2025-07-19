@@ -8,11 +8,62 @@
 <style>
     body { font-family: Arial, sans-serif; background:#f5f5f5; }
     .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-    .header { background-color: #ef4423; padding: 0.5rem 0.8rem; border-radius: 8px; position: relative; text-align: left; }
-    .header h1 { color: white; margin: 0; font-size: 2rem; display: inline-flex; align-items: center; }
-    .header img { height: 50px; vertical-align: middle; margin-right: 8px; }
-    .powered { position: absolute; top: 8px; right: 10px; font-size: 0.6em; color: white; }
-    .type-coaching { color: white; font-weight: bold; font-size: 1rem; margin-left: 58px; margin-top: 0.2rem; }
+    .header { background-color: #ef4423; padding: 0.5rem 0.8rem; border-radius: 8px; position: relative; text-align: left; display: flex; align-items: center; justify-content: space-between; }
+    
+    .header-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+    .header-left h1 {
+        color: white;
+        margin: 0;
+        font-size: 2rem;
+        display: flex;
+        align-items: center;
+    }
+    .header-left img {
+        height: 50px;
+        margin-right: 8px;
+    }
+    .header-info {
+        display: flex;
+        gap: 10px;
+        font-weight: bold;
+        color: white;
+        font-size: 0.9rem;
+        margin-top: 4px;
+    }
+    .header-info p {
+        margin: 0;
+        padding: 0;
+    }
+
+    .header-right {
+        color: white;
+        font-size: 1.1rem;
+        font-weight: bold;
+    }
+    .powered {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        font-size: 0.6em;
+        color: white;
+    }
+    .type-coaching {
+        color: white; 
+        font-weight: bold; 
+        font-size: 1rem; 
+        margin: 0.7rem 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .type-coaching .date {
+        font-weight: normal;
+        font-size: 0.9rem;
+    }
     .objectives, .short-term-comment { background-color: #f47a50; color: white; font-weight: bold; font-size: 0.9rem; text-align: center; border-radius: 6px; padding: 0.3rem; margin: 0.5rem 0; }
     .short-term-comment { background-color: #eee; color: #333; font-style: italic; }
     .next-runs table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -31,16 +82,31 @@
 <body>
 <div class="container">
     <div class="header">
-        <h1>
-            <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
-            StravaCoach
-        </h1>
-        <div class="type-coaching">
-            Ton coaching de : {{ dashboard.type_sortie }}
+        <div class="header-left">
+            <h1>
+                <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
+                StravaCoach
+            </h1>
+            <div class="header-info">
+                <p>Type : {{ dashboard.type_sortie }}</p>
+                <p>Date : {{ dashboard.date }}</p>
+            </div>
+        </div>
+        <div class="header-right">
+            {% if dashboard.avg_temperature is not none %}
+                Température : {{ dashboard.avg_temperature }}°C
+            {% else %}
+                Température : N/A
+            {% endif %}
         </div>
         <div class="powered">
             powered by OpenAI
         </div>
+    </div>
+
+    <div class="type-coaching">
+        <div>Ton coaching de : {{ dashboard.type_sortie }}</div>
+        <div class="date">le {{ dashboard.date }}</div>
     </div>
 
     {% if objectives %}
@@ -96,6 +162,15 @@
         <div><small>Gain Alt</small><div class="value">{{ dashboard.gain_alt }} m</div></div>
         <div><small>Temps</small><div class="value">{{ dashboard.duration_min }} min</div></div>
         <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
+        <div><small>Température</small>
+            <div class="value">
+                {% if dashboard.avg_temperature is not none %}
+                    {{ dashboard.avg_temperature }} °C
+                {% else %}
+                    N/A
+                {% endif %}
+            </div>
+        </div>
     </div>
     {% endif %}
 
@@ -130,26 +205,21 @@
 function formatPace(minutesDecimal) {
     const minutes = Math.floor(minutesDecimal);
     const seconds = Math.round((minutesDecimal - minutes) * 60);
-    // Ajoute un zéro en tête si les secondes sont < 10
     const formattedSeconds = seconds < 10 ? '0' + seconds : seconds;
     return `${minutes}:${formattedSeconds}`;
 }
 
-// Trouver la valeur d'élévation minimale de vos données pour chartGlobal
 const elevationData = {{ dashboard.points_alt | safe }};
-// Gérer le cas où le tableau est vide pour éviter Math.min sur un tableau vide
 const minElevation = elevationData.length > 0 ? Math.min(...elevationData) : 0; 
-// Définir la base 5 mètres en dessous du point minimum
 const newMinY2 = minElevation - 5; 
-
-// Couleur marron pour la ligne d'élévation et début du dégradé
 const elevationLineColor = 'brown'; 
 
+const labels = {{ dashboard.labels | safe }};
 const ctx = document.getElementById('chartGlobal').getContext('2d');
 const chart = new Chart(ctx, {
     type: 'line',
     data: {
-        labels: {{ dashboard.labels | safe }},
+        labels: labels,
         datasets: [
             { label: 'Allure (min/km)', data: {{ dashboard.allure_curve | safe }}, borderColor:'blue', borderWidth:1.5, yAxisID:'y', fill:false, tension:0.8, pointRadius:0 },
             { label: 'FC (bpm)', data: {{ dashboard.points_fc | safe }}, borderColor:'red', borderWidth:1.5, yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
@@ -179,15 +249,7 @@ const chart = new Chart(ctx, {
         plugins: { legend: { position:'bottom' }},
         scales: {
             x: {
-                type: 'linear',
-                min: 0,
-                max: Math.max(...{{ dashboard.labels | safe }}),
-                title: { display: true, text: 'Distance (km)' },
-                ticks: {
-                    callback: function(value) {
-                        return value.toFixed(1) + ' km';
-                    }
-                }
+                title: { display: true, text: 'Distance (km)' }
             },
             y: {
                 type:'linear',

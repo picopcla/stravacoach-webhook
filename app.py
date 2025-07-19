@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload, MediaIoBaseUpload
 from openai import OpenAI
 import numpy as np
+import requests  # <== Nouveau import pour requêtes HTTP
 
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
@@ -83,6 +84,24 @@ def upload_json_content_to_drive(json_data, drive_file_name):
 print("✅ Helpers OK")
 
 # -------------------
+# Fonction météo (Open-Meteo)
+# -------------------
+def get_temperature_for_run(lat, lon, date_str):
+    url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={date_str}&end_date={date_str}&hourly=temperature_2m"
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        temps = data.get('hourly', {}).get('temperature_2m', [])
+        if temps:
+            avg_temp = sum(temps) / len(temps)
+            return round(avg_temp, 1)
+        else:
+            return None
+    except Exception as e:
+        print("Erreur météo:", e)
+        return None
+
+# -------------------
 # Loaders
 # -------------------
 def load_activities(): return load_file_from_drive('activities.json') or []
@@ -92,9 +111,8 @@ def load_short_term_prompt_from_drive():
     return load_file_from_drive('prompt_short_term.txt') or "Donne directement le JSON des objectifs à court terme."
 def load_short_term_objectives(): return load_file_from_drive('short_term_objectives.json') or {}
 
-
 # -------------------
-# Fonctions spécifiques
+# Fonctions spécifiques (inchangées sauf pour enrich_activities etc)
 # -------------------
 def get_fcmax_from_fractionnes(activities):
     fcmax = 0
@@ -220,8 +238,8 @@ def convert_short_term_allures(short_term):
             run["allure_decimal"] = 0.0
     return short_term
 
-
 print("✅ Activities OK")
+
 # -------------------
 # Dashboard principal
 # -------------------
@@ -252,9 +270,31 @@ def compute_dashboard_data(activities):
             bloc_start_idx, next_bloc_dist = i+1, next_bloc_dist+500
     while len(allure_curve)<len(points):
         allure_curve.append(last_allure)
+    
+    # Récupération lat/lon pour météo (on tente sur first point sinon None)
+    lat, lon = None, None
+    if points and "lat" in points[0] and "lon" in points[0]:
+        lat, lon = points[0]["lat"], points[0]["lon"]
+    elif "start_latlng" in last and last["start_latlng"]:
+        lat, lon = last["start_latlng"][0], last["start_latlng"][1]
+
+    # Date format YYYY-MM-DD
+    date_str = "-"
+    try:
+        date_str = datetime.strptime(last.get("date"),"%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d")
+    except Exception:
+        date_str = None
+    
+    print("DEBUG Lat/Lon:", lat, lon)
+    print("DEBUG Date:", date_str)
+    # Récupération température via Open-Meteo si lat/lon et date ok
+    avg_temperature = None
+    if lat is not None and lon is not None and date_str:
+        avg_temperature = get_temperature_for_run(lat, lon, date_str)
+
     return {
         "type_sortie": last.get("type_sortie","-"),
-        "date": datetime.strptime(last.get("date"),"%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d"),
+        "date": date_str,
         "distance_km": round(total_dist,2),
         "duration_min": round(total_time,1),
         "allure": f"{int(allure_moy)}:{int((allure_moy-int(allure_moy))*60):02d}" if allure_moy else "-",
@@ -270,6 +310,7 @@ def compute_dashboard_data(activities):
         "pourcentage_zone2": last.get("pourcentage_zone2","-"),
         "time_above_90_pct_fcmax": last.get("time_above_90_pct_fcmax","-"),
         "ratio_fc_allure_global": last.get("ratio_fc_allure_global","-"),
+        "avg_temperature": avg_temperature,  # <--- température météo ajoutée ici
         "labels": json.dumps(labels),
         "allure_curve": json.dumps(allure_curve),
         "points_fc": json.dumps(points_fc),
@@ -289,7 +330,10 @@ def index():
     upload_json_content_to_drive(activities, 'activities.json')
     print("💾 activities.json mis à jour")
     dashboard = compute_dashboard_data(activities)
+    print("TYPE SORTIE =", dashboard.get("type_sortie"))
     print("📊 Dashboard calculé")
+    print("DATE =", dashboard.get("date"))
+    print("TEMPÉRATURE =", dashboard.get("avg_temperature"))
     return render_template("index.html",
         dashboard=dashboard,
         objectives=load_objectives(),
@@ -303,45 +347,11 @@ def profile():
             'birth_date': request.form['birth_date'],
             'weight': float(request.form['weight']),
             'global_objective': request.form.get('global_objective',''),
-            'particular_objective': request.form.get('particular_objective',''),
-            'events': [{"date":d,"name":n} for d,n in zip(request.form.getlist('event_date'),request.form.getlist('event_name')) if d and n]
+            'events': request.form.get('events','').split(',')
         })
         upload_json_content_to_drive(profile, 'profile.json')
-        return redirect('/')
+        return redirect('/profile')
     return render_template('profile.html', profile=profile)
 
-@app.route("/generate_short_term_plan")
-def generate_short_term_plan():
-    from datetime import timezone
-    profile = load_profile()
-    activities = load_activities()
-    prompt_template = load_short_term_prompt_from_drive()
-    last_30_days = datetime.now(timezone.utc)-timedelta(days=30)
-    recent_events = [e for e in profile.get("events",[]) if e.get("date") and datetime.strptime(e["date"],"%Y-%m-%d").replace(tzinfo=timezone.utc)>last_30_days]
-    recent_runs = [{
-        "date":act.get("date"),"type_sortie":act.get("type_sortie"),"k_moy":act.get("k_moy"),
-        "drift_slope":act.get("drift_slope"),"deriv_cardio":act.get("deriv_cardio"),
-        "collapse_distance_km":act.get("collapse_distance_km"),"cv_allure":act.get("cv_allure"),
-        "cv_cardio":act.get("cv_cardio"),"endurance_index":act.get("endurance_index")
-    } for act in activities if datetime.strptime(act.get("date"),"%Y-%m-%dT%H:%M:%S%z")>last_30_days]
-    last_run = recent_runs[-1] if recent_runs else {}
-    same_type_runs = [r for r in recent_runs if r["type_sortie"]==last_run.get("type_sortie")]
-    payload = {"recent_events":recent_events,"recent_runs_same_type":same_type_runs,"last_run":last_run}
-    final_prompt = prompt_template + "\n\nVoici les données JSON :\n" + json.dumps(payload, indent=2, ensure_ascii=False)
-    print("\n=== PROMPT ENVOYÉ À GPT ===\n", final_prompt)
-    try:
-        content = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role":"user","content":final_prompt}]
-        ).choices[0].message.content
-        print("\n=== RÉPONSE BRUTE DE GPT ===\n", content)
-        short_term_objectives = json.loads(content)
-    except Exception as e:
-        print("Erreur parsing JSON GPT:", e)
-        short_term_objectives = {"error":"Impossible de parser la réponse GPT","raw":content}
-    upload_json_content_to_drive(short_term_objectives,'short_term_objectives.json')
-    return redirect("/")
-
-if __name__=="__main__":
-    print("✅ Lancement du serveur Flask...")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+if __name__ == "__main__":
+    app.run(debug=True)
