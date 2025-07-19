@@ -203,8 +203,25 @@ def enrich_activities(activities):
         activity.pop("force_recompute", None)
     return activities
 
-print("✅ Activities OK")
+def allure_mmss_to_decimal(mmss):
+    try:
+        minutes, seconds = mmss.split(":")
+        return int(minutes) + int(seconds) / 60
+    except Exception:
+        return 0.0
+        
+def convert_short_term_allures(short_term):
+    if not short_term or "prochains_runs" not in short_term:
+        return short_term
+    for run in short_term["prochains_runs"]:
+        if isinstance(run.get("allure"), str):
+            run["allure_decimal"] = allure_mmss_to_decimal(run["allure"])
+        else:
+            run["allure_decimal"] = 0.0
+    return short_term
 
+
+print("✅ Activities OK")
 # -------------------
 # Dashboard principal
 # -------------------
@@ -219,6 +236,8 @@ def compute_dashboard_data(activities):
     allure_moy = total_time / total_dist if total_dist > 0 else None
     hr_vals = [p["hr"] for p in points if p.get("hr")]
     labels = [round(p["distance"]/1000,3) for p in points]
+    if labels and labels[0] != 0:
+        labels[0] = 0.0
     points_fc = [p["hr"] for p in points]
     points_alt = [p["alt"]-points[0]["alt"] for p in points]
     allure_curve, bloc_start_idx, next_bloc_dist, last_allure = [], 0, 500, None
