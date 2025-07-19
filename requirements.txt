@@ -7,3 +7,5 @@ google-auth-oauthlib==1.0.0
 gunicorn
 numpy
 openai
+scikit-learn
+matplotlib

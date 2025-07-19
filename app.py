@@ -30,7 +30,7 @@ print("✅ Lecture Google Credentials OK")
 
 # -------------------
 # Helpers Google Drive
-# -------------------
+# ------------------
 def load_file_from_drive(filename):
     try:
         results = drive_service.files().list(
