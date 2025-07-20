@@ -60,6 +60,12 @@
         text-align: right;
         white-space: nowrap;
     }
+    /* Ajout style pour l’emoji météo */
+    .header-right span.weather-emoji {
+        font-size: 1.8rem;
+        display: inline-block;
+        margin-top: 0.2rem;
+    }
     .powered {
         flex-basis: 100%;
         font-size: 0.7rem;
@@ -127,6 +133,8 @@
         <div class="header-right">
             {% if dashboard.temperature is not none %}
                 Température : {{ dashboard.temperature }}°C
+                <br />
+                <span class="weather-emoji">{{ dashboard.weather_emoji }}</span>
             {% else %}
                 Température : N/A
             {% endif %}

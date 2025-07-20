@@ -87,20 +87,22 @@ print("✅ Helpers OK")
 # Fonction météo (Open-Meteo)
 # -------------------
 def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
+    from datetime import datetime, timedelta
+    import requests
     try:
         start_dt = datetime.strptime(start_datetime_str, "%Y-%m-%dT%H:%M:%SZ")
         end_dt = start_dt + timedelta(minutes=duration_minutes)
         print(f"🕒 Heure début (start_dt): {start_dt}, fin (end_dt): {end_dt}")
     except Exception as e:
         print("❌ Erreur parsing datetime pour météo:", e)
-        return None, None, None
+        return None, None, None, None
 
     date_str = start_dt.strftime("%Y-%m-%d")
     url = (
         f"https://archive-api.open-meteo.com/v1/archive?"
         f"latitude={lat}&longitude={lon}"
         f"&start_date={date_str}&end_date={date_str}"
-        f"&hourly=temperature_2m&timezone=auto"
+        f"&hourly=temperature_2m,weathercode&timezone=auto"
     )
     print("🌐 Requête météo URL:", url)
 
@@ -109,11 +111,10 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
         data = response.json()
         hours = data.get("hourly", {}).get("time", [])
         temps = data.get("hourly", {}).get("temperature_2m", [])
+        weathercodes = data.get("hourly", {}).get("weathercode", [])
 
-        # Convertir en datetime objets
         hours_dt = [datetime.fromisoformat(h) for h in hours]
 
-        # Trouver la température la plus proche de start_dt et end_dt
         def closest_temp(target_dt):
             diffs = [abs((dt - target_dt).total_seconds()) for dt in hours_dt]
             idx = diffs.index(min(diffs))
@@ -134,11 +135,24 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
             print("⚠️ Aucune température dans la fenêtre d’activité.")
             avg_temp = None
 
-        return avg_temp, temp_debut, temp_fin
+        # Récupérer les codes météo dans la fenêtre
+        weather_in_window = [
+            wc for dt, wc in zip(hours_dt, weathercodes)
+            if start_dt <= dt <= end_dt
+        ]
+
+        if weather_in_window:
+            from collections import Counter
+            most_common_code = Counter(weather_in_window).most_common(1)[0][0]
+        else:
+            most_common_code = None
+
+        return avg_temp, temp_debut, temp_fin, most_common_code
 
     except Exception as e:
         print("❌ Erreur requête météo:", e)
-        return None, None, None
+        return None, None, None, None
+
 
 # -------------------
 # Loaders
@@ -283,6 +297,30 @@ print("✅ Activities OK")
 # Dashboard principal
 # -------------------
 def compute_dashboard_data(activities):
+    weather_code_map = {
+       0: "☀️",  # Clear sky
+       1: "🌤️",  # Mainly clear
+       2: "⛅",   # Partly cloudy
+       3: "☁️",  # Overcast
+       45: "🌫️", # Fog
+       48: "🌫️", # Depositing rime fog
+       51: "🌦️", # Drizzle light
+       53: "🌧️", # Drizzle moderate
+       55: "🌧️", # Drizzle dense
+       61: "🌧️", # Rain slight
+       63: "🌧️", # Rain moderate
+       65: "🌧️", # Rain heavy
+       71: "❄️",  # Snow fall slight
+       73: "❄️",  # Snow fall moderate
+       75: "❄️",  # Snow fall heavy
+       80: "🌧️", # Rain showers slight
+       81: "🌧️", # Rain showers moderate
+       82: "🌧️", # Rain showers violent
+       95: "⛈️",  # Thunderstorm slight
+       96: "⛈️",  # Thunderstorm with slight hail
+       99: "⛈️",  # Thunderstorm with heavy hail
+    }
+
     print("\n🔍 DEBUG --- Vérification température")
 
     activities.sort(key=lambda x: x.get("date"))
@@ -312,15 +350,21 @@ def compute_dashboard_data(activities):
 
     # Température
     avg_temperature, temp_debut, temp_fin = None, None, None
+    weather_code = None
     if lat is not None and lon is not None and date_str:
         start_datetime_str = last.get("date")  # Ex: "2025-07-18T19:45:57Z"
         duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60 if points else 0
-        avg_temperature, temp_debut, temp_fin = get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes)
+        avg_temperature, temp_debut, temp_fin, weather_code = get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes)
         print(f"🌡️ Température début: {temp_debut}°C")
         print(f"🌡️ Température fin: {temp_fin}°C")
         print(f"🌡️ Température moyenne: {avg_temperature}°C")
     else:
         print("⚠️ Impossible d’appeler météo: coordonnées ou date manquantes.")
+
+    if weather_code is None:
+        weather_code = -1  # clé absente pour forcer fallback
+
+    weather_emoji = weather_code_map.get(weather_code, "❓")
 
     # Metrics
     total_dist = points[-1]["distance"] / 1000
@@ -379,8 +423,11 @@ def compute_dashboard_data(activities):
         "history_dates": json.dumps([a["date"][:10] for a in activities if a.get("k_moy") != "-"]),
         "history_k": json.dumps([a["k_moy"] for a in activities if a.get("k_moy") != "-"]),
         "temperature": avg_temperature,
+        "weather_code": weather_code,
+        "weather_emoji": weather_emoji,
         "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
+
 
 @app.route("/")
 def index():
