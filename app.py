@@ -86,20 +86,59 @@ print("✅ Helpers OK")
 # -------------------
 # Fonction météo (Open-Meteo)
 # -------------------
-def get_temperature_for_run(lat, lon, date_str):
-    url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={date_str}&end_date={date_str}&hourly=temperature_2m"
+def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
     try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        temps = data.get('hourly', {}).get('temperature_2m', [])
-        if temps:
-            avg_temp = sum(temps) / len(temps)
-            return round(avg_temp, 1)
-        else:
-            return None
+        start_dt = datetime.strptime(start_datetime_str, "%Y-%m-%dT%H:%M:%SZ")
+        end_dt = start_dt + timedelta(minutes=duration_minutes)
+        print(f"🕒 Heure début (start_dt): {start_dt}, fin (end_dt): {end_dt}")
     except Exception as e:
-        print("Erreur météo:", e)
-        return None
+        print("❌ Erreur parsing datetime pour météo:", e)
+        return None, None, None
+
+    date_str = start_dt.strftime("%Y-%m-%d")
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive?"
+        f"latitude={lat}&longitude={lon}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&hourly=temperature_2m&timezone=auto"
+    )
+    print("🌐 Requête météo URL:", url)
+
+    try:
+        response = requests.get(url)
+        data = response.json()
+        hours = data.get("hourly", {}).get("time", [])
+        temps = data.get("hourly", {}).get("temperature_2m", [])
+
+        # Convertir en datetime objets
+        hours_dt = [datetime.fromisoformat(h) for h in hours]
+
+        # Trouver la température la plus proche de start_dt et end_dt
+        def closest_temp(target_dt):
+            diffs = [abs((dt - target_dt).total_seconds()) for dt in hours_dt]
+            idx = diffs.index(min(diffs))
+            return temps[idx]
+
+        temp_debut = closest_temp(start_dt) if hours_dt else None
+        temp_fin = closest_temp(end_dt) if hours_dt else None
+
+        # Températures dans la fenêtre activité
+        temp_values = [
+            temp for dt, temp in zip(hours_dt, temps)
+            if start_dt <= dt <= end_dt
+        ]
+
+        if temp_values:
+            avg_temp = round(sum(temp_values) / len(temp_values), 1)
+        else:
+            print("⚠️ Aucune température dans la fenêtre d’activité.")
+            avg_temp = None
+
+        return avg_temp, temp_debut, temp_fin
+
+    except Exception as e:
+        print("❌ Erreur requête météo:", e)
+        return None, None, None
 
 # -------------------
 # Loaders
@@ -112,7 +151,7 @@ def load_short_term_prompt_from_drive():
 def load_short_term_objectives(): return load_file_from_drive('short_term_objectives.json') or {}
 
 # -------------------
-# Fonctions spécifiques (inchangées sauf pour enrich_activities etc)
+# Fonctions spécifiques (inchangées sauf enrich_activities etc)
 # -------------------
 def get_fcmax_from_fractionnes(activities):
     fcmax = 0
@@ -244,83 +283,104 @@ print("✅ Activities OK")
 # Dashboard principal
 # -------------------
 def compute_dashboard_data(activities):
+    print("\n🔍 DEBUG --- Vérification température")
+
     activities.sort(key=lambda x: x.get("date"))
-    last = activities[-1]
+    last = activities[-1] if activities else {}
+
     points = last.get("points", [])
     if not points:
+        print("⚠️ Pas de points dans la dernière activité")
         return {}
+
+    # Date
+    date_str = "-"
+    try:
+        date_str = datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d")
+    except Exception as e:
+        print("❌ Erreur parsing date:", e)
+        date_str = None
+    print("📅 Date activité:", date_str)
+
+    # GPS
+    lat, lon = None, None
+    if points and "lat" in points[0] and "lng" in points[0]:
+        lat, lon = points[0]["lat"], points[0]["lng"]
+    elif "start_latlng" in last and last["start_latlng"]:
+        lat, lon = last["start_latlng"][0], last["start_latlng"][1]
+    print("📍 GPS activité:", lat, lon)
+
+    # Température
+    avg_temperature, temp_debut, temp_fin = None, None, None
+    if lat is not None and lon is not None and date_str:
+        start_datetime_str = last.get("date")  # Ex: "2025-07-18T19:45:57Z"
+        duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60 if points else 0
+        avg_temperature, temp_debut, temp_fin = get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes)
+        print(f"🌡️ Température début: {temp_debut}°C")
+        print(f"🌡️ Température fin: {temp_fin}°C")
+        print(f"🌡️ Température moyenne: {avg_temperature}°C")
+    else:
+        print("⚠️ Impossible d’appeler météo: coordonnées ou date manquantes.")
+
+    # Metrics
     total_dist = points[-1]["distance"] / 1000
     total_time = (points[-1]["time"] - points[0]["time"]) / 60
     allure_moy = total_time / total_dist if total_dist > 0 else None
     hr_vals = [p["hr"] for p in points if p.get("hr")]
-    labels = [round(p["distance"]/1000,3) for p in points]
+    labels = [round(p["distance"] / 1000, 3) for p in points]
     if labels and labels[0] != 0:
         labels[0] = 0.0
-    points_fc = [p["hr"] for p in points]
-    points_alt = [p["alt"]-points[0]["alt"] for p in points]
-    allure_curve, bloc_start_idx, next_bloc_dist, last_allure = [], 0, 500, None
-    for i, p in enumerate(points):
-        if p["distance"] >= next_bloc_dist or i==len(points)-1:
-            bloc_points = points[bloc_start_idx:i+1]
-            bloc_dist = bloc_points[-1]["distance"]-bloc_points[0]["distance"]
-            bloc_time = bloc_points[-1]["time"]-bloc_points[0]["time"]
-            if bloc_dist>0:
-                last_allure = (bloc_time/60)/(bloc_dist/1000)
-            allure_curve.extend([last_allure]*len(bloc_points))
-            bloc_start_idx, next_bloc_dist = i+1, next_bloc_dist+500
-    while len(allure_curve)<len(points):
-        allure_curve.append(last_allure)
-    
-    # Récupération lat/lon pour météo (on tente sur first point sinon None)
-    lat, lon = None, None
-    if points and "lat" in points[0] and "lon" in points[0]:
-        lat, lon = points[0]["lat"], points[0]["lon"]
-    elif "start_latlng" in last and last["start_latlng"]:
-        lat, lon = last["start_latlng"][0], last["start_latlng"][1]
+    points_fc = [p["hr"] for p in points if p.get("hr") is not None]
+    points_alt = [p["alt"] - points[0]["alt"] for p in points if p.get("alt") is not None]
 
-    # Date format YYYY-MM-DD
-    date_str = "-"
-    try:
-        date_str = datetime.strptime(last.get("date"),"%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d")
-    except Exception:
-        date_str = None
-    
-    print("DEBUG Lat/Lon:", lat, lon)
-    print("DEBUG Date:", date_str)
-    # Récupération température via Open-Meteo si lat/lon et date ok
-    avg_temperature = None
-    if lat is not None and lon is not None and date_str:
-        avg_temperature = get_temperature_for_run(lat, lon, date_str)
+    # Allure curve
+    allure_curve = []
+    bloc_start_idx, next_bloc_dist, last_allure = 0, 500, None
+    for i, p in enumerate(points):
+        if p["distance"] >= next_bloc_dist or i == len(points) - 1:
+            bloc_points = points[bloc_start_idx:i + 1]
+            bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
+            bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
+            if bloc_dist > 0:
+                last_allure = (bloc_time / 60) / (bloc_dist / 1000)
+            allure_curve.extend([last_allure] * len(bloc_points))
+            bloc_start_idx = i + 1
+            next_bloc_dist += 500
+    while len(allure_curve) < len(points):
+        allure_curve.append(last_allure)
+
+    print("📊 Dashboard calculé")
 
     return {
-        "type_sortie": last.get("type_sortie","-"),
+        "type_sortie": last.get("type_sortie", "-"),
         "date": date_str,
-        "distance_km": round(total_dist,2),
-        "duration_min": round(total_time,1),
-        "allure": f"{int(allure_moy)}:{int((allure_moy-int(allure_moy))*60):02d}" if allure_moy else "-",
-        "fc_moy": round(sum(hr_vals)/len(hr_vals),1) if hr_vals else "-",
+        "distance_km": round(total_dist, 2),
+        "duration_min": round(total_time, 1),
+        "allure": f"{int(allure_moy)}:{int((allure_moy - int(allure_moy)) * 60):02d}" if allure_moy else "-",
+        "fc_moy": round(sum(hr_vals) / len(hr_vals), 1) if hr_vals else "-",
         "fc_max": max(hr_vals) if hr_vals else "-",
-        "k_moy": last.get("k_moy","-"),
-        "deriv_cardio": last.get("deriv_cardio","-"),
-        "gain_alt": round(points[-1]["alt"]-points[0]["alt"],1),
-        "drift_slope": last.get("drift_slope","-"),
-        "cv_allure": last.get("cv_allure","-"),
-        "cv_cardio": last.get("cv_cardio","-"),
-        "collapse_distance_km": last.get("collapse_distance_km","-"),
-        "pourcentage_zone2": last.get("pourcentage_zone2","-"),
-        "time_above_90_pct_fcmax": last.get("time_above_90_pct_fcmax","-"),
-        "ratio_fc_allure_global": last.get("ratio_fc_allure_global","-"),
-        "avg_temperature": avg_temperature,  # <--- température météo ajoutée ici
+        "k_moy": last.get("k_moy", "-"),
+        "deriv_cardio": last.get("deriv_cardio", "-"),
+        "gain_alt": round(points[-1]["alt"] - points[0]["alt"], 1),
+        "drift_slope": last.get("drift_slope", "-"),
+        "cv_allure": last.get("cv_allure", "-"),
+        "cv_cardio": last.get("cv_cardio", "-"),
+        "collapse_distance_km": last.get("collapse_distance_km", "-"),
+        "pourcentage_zone2": last.get("pourcentage_zone2", "-"),
+        "time_above_90_pct_fcmax": last.get("time_above_90_pct_fcmax", "-"),
+        "ratio_fc_allure_global": last.get("ratio_fc_allure_global", "-"),
+        "avg_temperature": avg_temperature,
+        "temp_debut": temp_debut,
+        "temp_fin": temp_fin,
         "labels": json.dumps(labels),
         "allure_curve": json.dumps(allure_curve),
         "points_fc": json.dumps(points_fc),
         "points_alt": json.dumps(points_alt),
-        "history_dates": json.dumps([a["date"][:10] for a in activities if a.get("k_moy")!="-"]),
-        "history_k": json.dumps([a["k_moy"] for a in activities if a.get("k_moy")!="-"]),
-        "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio")!="-"]),
+        "history_dates": json.dumps([a["date"][:10] for a in activities if a.get("k_moy") != "-"]),
+        "history_k": json.dumps([a["k_moy"] for a in activities if a.get("k_moy") != "-"]),
+        "temperature": avg_temperature,
+        "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
-
-print("✅ Dashboard OK")
 
 @app.route("/")
 def index():

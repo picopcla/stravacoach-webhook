@@ -8,12 +8,25 @@
 <style>
     body { font-family: Arial, sans-serif; background:#f5f5f5; }
     .container { max-width:700px; margin:2rem auto; background:white; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); padding:2rem; }
-    .header { background-color: #ef4423; padding: 0.5rem 0.8rem; border-radius: 8px; position: relative; text-align: left; display: flex; align-items: center; justify-content: space-between; }
-    
+
+    /* Header corrigé pour éviter superposition */
+    .header {
+        background-color: #ef4423;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        text-align: left;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem 1rem;
+    }
     .header-left {
         display: flex;
-        align-items: center;
-        gap: 20px;
+        flex-direction: column;
+        gap: 0.3rem;
+        flex: 1 1 60%;
+        min-width: 180px;
     }
     .header-left h1 {
         color: white;
@@ -21,36 +34,55 @@
         font-size: 2rem;
         display: flex;
         align-items: center;
+        gap: 8px;
     }
     .header-left img {
         height: 50px;
-        margin-right: 8px;
     }
     .header-info {
         display: flex;
-        gap: 10px;
+        flex-wrap: wrap;
+        gap: 1rem 1.5rem;
         font-weight: bold;
         color: white;
         font-size: 0.9rem;
-        margin-top: 4px;
     }
     .header-info p {
         margin: 0;
-        padding: 0;
+        white-space: nowrap;
     }
-
     .header-right {
         color: white;
         font-size: 1.1rem;
         font-weight: bold;
+        flex: 1 1 30%;
+        min-width: 120px;
+        text-align: right;
+        white-space: nowrap;
     }
     .powered {
-        position: absolute;
-        top: 8px;
-        right: 10px;
-        font-size: 0.6em;
+        flex-basis: 100%;
+        font-size: 0.7rem;
         color: white;
+        text-align: center;
+        margin-top: 0.3rem;
     }
+
+    /* Responsive simplifié */
+    @media (max-width: 600px) {
+        .header-left, .header-right {
+            flex: 1 1 100%;
+            text-align: center;
+        }
+        .header-right {
+            margin-top: 0.3rem;
+        }
+        .header-info {
+            justify-content: center;
+        }
+    }
+
+    /* Le reste de ton CSS existant */
     .type-coaching {
         color: white; 
         font-weight: bold; 
@@ -93,8 +125,8 @@
             </div>
         </div>
         <div class="header-right">
-            {% if dashboard.avg_temperature is not none %}
-                Température : {{ dashboard.avg_temperature }}°C
+            {% if dashboard.temperature is not none %}
+                Température : {{ dashboard.temperature }}°C
             {% else %}
                 Température : N/A
             {% endif %}
@@ -104,6 +136,7 @@
         </div>
     </div>
 
+    <!-- Le reste inchangé -->
     <div class="type-coaching">
         <div>Ton coaching de : {{ dashboard.type_sortie }}</div>
         <div class="date">le {{ dashboard.date }}</div>
@@ -164,8 +197,8 @@
         <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
         <div><small>Température</small>
             <div class="value">
-                {% if dashboard.avg_temperature is not none %}
-                    {{ dashboard.avg_temperature }} °C
+                {% if dashboard.temperature is not none %}
+                    {{ dashboard.temperature }} °C
                 {% else %}
                     N/A
                 {% endif %}
