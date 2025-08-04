@@ -94,6 +94,10 @@ def upload_json_content_to_drive(json_data, drive_file_name):
         drive_service.files().create(
             body=metadata, media_body=media, fields='id', supportsAllDrives=True
         ).execute()
+        
+def save_short_term_objectives(data):
+    upload_json_content_to_drive(data, 'short_term_objectives.json')
+
 
 print("✅ Helpers OK")
 
@@ -458,8 +462,6 @@ def compute_dashboard_data(activities):
 from flask import Flask, render_template, request, redirect
 # Assure-toi d'importer aussi tes fonctions load_profile(), upload_json_content_to_drive(), etc.
 
-app = Flask(__name__)
-
 @app.route("/")
 def index():
     activities = load_activities()
@@ -503,6 +505,42 @@ def profile():
         return redirect('/profile')
 
     return render_template('profile.html', profile=profile)
+    
+@app.route('/generate_short_term_plan')
+def generate_short_term_plan():
+    profile = load_profile()
+    activities = load_activities()
+    prompt_template = load_short_term_prompt_from_drive()
+
+    # Exemple simple pour construire prompt
+    prompt = prompt_template
+    prompt += f"\nProfil: {profile}"
+    prompt += f"\nActivités récentes: {len(activities)}"
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+            max_tokens=1000
+        )
+        result_str = response.choices[0].message.content.strip()
+
+        # Essayer de parser la réponse JSON (précise à OpenAI de répondre en JSON strict)
+        short_term_objectives = json.loads(result_str)
+
+        # Ajouter conversion allures au format décimal si besoin
+        short_term_objectives = convert_short_term_allures(short_term_objectives)
+
+        save_short_term_objectives(short_term_objectives)
+
+        print("✅ Coaching court terme généré et sauvegardé.")
+
+        return redirect('/')  # ou retourner un message / JSON si API
+
+    except Exception as e:
+        print("❌ Erreur génération coaching court terme:", e)
+        return f"Erreur génération coaching: {e}", 500
 
 if __name__ == "__main__":
     app.run(debug=True)
