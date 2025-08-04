@@ -1,33 +1,47 @@
-from flask import Flask, render_template, request, redirect
+import os
 import json
 import io
-import os
 from datetime import datetime, timedelta
+
+from flask import Flask, render_template, request, redirect
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload, MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from openai import OpenAI
+from dotenv import load_dotenv
 import numpy as np
-import requests  # <== Nouveau import pour requêtes HTTP
+import requests
 
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
-client = OpenAI()
-print("✅ DÉMARRAGE APP.PY")
 
-# -------------------
-# Auth Google Drive
-# -------------------
+# --- Chargement .env local si pas sur Render ---
+if not os.getenv("RENDER"):
+    load_dotenv(r"C:\StravaSecurity\main.env")
+    print("✅ Variables d'environnement chargées depuis main.env")
+
+# --- Init OpenAI ---
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    raise ValueError("OPENAI_API_KEY non défini")
+client = OpenAI(api_key=openai_api_key)
+print("✅ OpenAI client initialisé")
+
+# --- Init Google Drive ---
 try:
+    # Si Render, la variable est un JSON complet en string
     service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
 except KeyError:
-    with open('c:/StravaSecurity/service_account.json') as f:
+    # Sinon, on lit le fichier local
+    with open(r'C:\StravaSecurity\services.json', 'r', encoding='utf-8') as f:
         service_account_info = json.load(f)
-credentials = service_account.Credentials.from_service_account_info(
-    service_account_info, scopes=['https://www.googleapis.com/auth/drive'])
-drive_service = build('drive', 'v3', credentials=credentials)
 
-print("✅ Lecture Google Credentials OK")
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info,
+    scopes=['https://www.googleapis.com/auth/drive']
+)
+drive_service = build('drive', 'v3', credentials=credentials)
+print("✅ Google Drive service initialisé")
 
 # -------------------
 # Helpers Google Drive
@@ -86,9 +100,11 @@ print("✅ Helpers OK")
 # -------------------
 # Fonction météo (Open-Meteo)
 # -------------------
+from datetime import datetime, timedelta, date
+import requests
+from collections import Counter
+
 def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
-    from datetime import datetime, timedelta
-    import requests
     try:
         start_dt = datetime.strptime(start_datetime_str, "%Y-%m-%dT%H:%M:%SZ")
         end_dt = start_dt + timedelta(minutes=duration_minutes)
@@ -97,61 +113,72 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
         print("❌ Erreur parsing datetime pour météo:", e)
         return None, None, None, None
 
-    date_str = start_dt.strftime("%Y-%m-%d")
-    url = (
-        f"https://archive-api.open-meteo.com/v1/archive?"
-        f"latitude={lat}&longitude={lon}"
-        f"&start_date={date_str}&end_date={date_str}"
-        f"&hourly=temperature_2m,weathercode&timezone=auto"
-    )
-    print("🌐 Requête météo URL:", url)
+    today = date.today()
+    is_today = start_dt.date() == today
+
+    if is_today:
+        # 🎯 API en temps réel
+        url = (
+            f"https://api.open-meteo.com/v1/forecast?"
+            f"latitude={lat}&longitude={lon}"
+            f"&hourly=temperature_2m,weathercode"
+            f"&timezone=auto"
+        )
+        print("🌐 Requête météo (temps réel) URL:", url)
+    else:
+        # 🕰️ API archive
+        date_str = start_dt.strftime("%Y-%m-%d")
+        url = (
+            f"https://archive-api.open-meteo.com/v1/archive?"
+            f"latitude={lat}&longitude={lon}"
+            f"&start_date={date_str}&end_date={date_str}"
+            f"&hourly=temperature_2m,weathercode"
+            f"&timezone=auto"
+        )
+        print("🌐 Requête météo (archive) URL:", url)
 
     try:
         response = requests.get(url)
+        response.raise_for_status()
         data = response.json()
+
         hours = data.get("hourly", {}).get("time", [])
         temps = data.get("hourly", {}).get("temperature_2m", [])
         weathercodes = data.get("hourly", {}).get("weathercode", [])
+
+        if not hours or not temps:
+            print("⚠️ Aucune donnée horaire trouvée.")
+            return None, None, None, None
 
         hours_dt = [datetime.fromisoformat(h) for h in hours]
 
         def closest_temp(target_dt):
             diffs = [abs((dt - target_dt).total_seconds()) for dt in hours_dt]
             idx = diffs.index(min(diffs))
-            return temps[idx]
+            return temps[idx] if temps[idx] is not None else None
 
-        temp_debut = closest_temp(start_dt) if hours_dt else None
-        temp_fin = closest_temp(end_dt) if hours_dt else None
+        temp_debut = closest_temp(start_dt)
+        temp_fin = closest_temp(end_dt)
 
-        # Températures dans la fenêtre activité
         temp_values = [
             temp for dt, temp in zip(hours_dt, temps)
-            if start_dt <= dt <= end_dt
+            if start_dt <= dt <= end_dt and temp is not None
         ]
 
-        if temp_values:
-            avg_temp = round(sum(temp_values) / len(temp_values), 1)
-        else:
-            print("⚠️ Aucune température dans la fenêtre d’activité.")
-            avg_temp = None
+        avg_temp = round(sum(temp_values) / len(temp_values), 1) if temp_values else None
 
-        # Récupérer les codes météo dans la fenêtre
         weather_in_window = [
             wc for dt, wc in zip(hours_dt, weathercodes)
-            if start_dt <= dt <= end_dt
+            if start_dt <= dt <= end_dt and wc is not None
         ]
-
-        if weather_in_window:
-            from collections import Counter
-            most_common_code = Counter(weather_in_window).most_common(1)[0][0]
-        else:
-            most_common_code = None
+        most_common_code = Counter(weather_in_window).most_common(1)[0][0] if weather_in_window else None
 
         return avg_temp, temp_debut, temp_fin, most_common_code
 
     except Exception as e:
-        print("❌ Erreur requête météo:", e)
+        print("❌ Erreur lors de la requête ou du traitement météo:", e)
         return None, None, None, None
+
 
 
 # -------------------
@@ -428,6 +455,10 @@ def compute_dashboard_data(activities):
         "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
 
+from flask import Flask, render_template, request, redirect
+# Assure-toi d'importer aussi tes fonctions load_profile(), upload_json_content_to_drive(), etc.
+
+app = Flask(__name__)
 
 @app.route("/")
 def index():
@@ -442,22 +473,35 @@ def index():
     print("DATE =", dashboard.get("date"))
     print("TEMPÉRATURE =", dashboard.get("avg_temperature"))
     return render_template("index.html",
-        dashboard=dashboard,
-        objectives=load_objectives(),
-        short_term=load_short_term_objectives())
+                           dashboard=dashboard,
+                           objectives=load_objectives(),
+                           short_term=load_short_term_objectives())
 
 @app.route('/profile', methods=['GET','POST'])
 def profile():
     profile = load_profile()
-    if request.method=='POST':
-        profile.update({
-            'birth_date': request.form['birth_date'],
-            'weight': float(request.form['weight']),
-            'global_objective': request.form.get('global_objective',''),
-            'events': request.form.get('events','').split(',')
-        })
+    if request.method == 'POST':
+        profile['birth_date'] = request.form.get('birth_date', '')
+        weight = request.form.get('weight', '')
+        profile['weight'] = float(weight) if weight else 0.0
+        profile['global_objective'] = request.form.get('global_objective', '')
+        profile['particular_objective'] = request.form.get('particular_objective', '')
+
+        # Récupérer listes des événements : dates et noms
+        event_dates = request.form.getlist('event_date')
+        event_names = request.form.getlist('event_name')
+
+        events = []
+        for d, n in zip(event_dates, event_names):
+            d = d.strip()
+            n = n.strip()
+            if d and n:
+                events.append({'date': d, 'name': n})
+        profile['events'] = events
+
         upload_json_content_to_drive(profile, 'profile.json')
         return redirect('/profile')
+
     return render_template('profile.html', profile=profile)
 
 if __name__ == "__main__":

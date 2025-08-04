@@ -13,7 +13,7 @@
     th,td { border:1px solid #ddd; padding:8px;}
     .btn { display:block; width:100%; text-align:center; background:#28a745; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1.5rem;}
     .btn:hover { background:#218838;}
-    .btn-ia { background:#007bff; } /* bouton IA bleu */
+    .btn-ia { background:#007bff; }
     .btn-ia:hover { background:#0069d9; }
     .row { display: flex; gap: 1rem; margin-top: 1rem; }
     .col { flex: 1; }
@@ -63,7 +63,6 @@
       <button class="btn" type="submit">💾 Enregistrer</button>
     </form>
 
-    <!-- bouton IA à part -->
     <a href="/generate_plan" class="btn btn-ia">📊 Calculer les objectifs IA</a>
   </div>
 
@@ -72,7 +71,7 @@
       if(!birth) return;
       const dob = new Date(birth);
       const diff = Date.now() - dob.getTime();
-      const age = new Date(diff).getUTCFullYear()-1970;
+      const age = new Date(diff).getUTCFullYear() - 1970;
       document.getElementById('age').value = age + " ans";
     }
     function addRow() {
@@ -85,3 +84,4 @@
   </script>
 </body>
 </html>
+
