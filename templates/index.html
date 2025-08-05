@@ -316,22 +316,27 @@ function formatPace(minutesDecimal) {
         carousel.style.transform = `translateX(${-currentIndex * 100}%)`;
     }
 
-	// Flèche gauche -> passé
+	// Flèche gauche → activité précédente
 	prevBtn.addEventListener('click', () => {
-		currentIndex = (currentIndex + 1) % totalSlides;
+		currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
 		updateCarousel();
 	});
 
-	// Flèche droite -> retour vers plus récent
+	// Flèche droite → activité suivante
 	nextBtn.addEventListener('click', () => {
-		currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
+		currentIndex = (currentIndex + 1) % totalSlides;
 		updateCarousel();
 	});
 
 
     // Swipe support mobile
-    let startX = 0;
-    let isDragging = false;
+	let startX = 0;
+	let isDragging = false;
+
+	carousel.addEventListener('touchstart', (e) => {
+		startX = e.touches[0].clientX;
+		isDragging = true;
+	});
 
 	carousel.addEventListener('touchend', (e) => {
 		if (!isDragging) return;
@@ -339,12 +344,12 @@ function formatPace(minutesDecimal) {
 		const diffX = endX - startX;
 
 		if (diffX > 40) {
-			// Swipe vers la droite → on veut aller dans le passé (comme flèche gauche)
-			currentIndex = (currentIndex + 1) % totalSlides;
+			// Swipe vers la droite → activité précédente
+			currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
 			updateCarousel();
 		} else if (diffX < -40) {
-			// Swipe vers la gauche → retour vers plus récent (comme flèche droite)
-			currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
+			// Swipe vers la gauche → activité suivante
+			currentIndex = (currentIndex + 1) % totalSlides;
 			updateCarousel();
 		}
 		isDragging = false;
