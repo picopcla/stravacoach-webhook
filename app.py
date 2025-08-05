@@ -245,6 +245,35 @@ def get_weather_emoji_for_activity(activity):
     duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60
     _, _, _, weather_code = get_temperature_for_run(lat, lon, date_str, duration_minutes)
     return weather_code_map.get(weather_code, "❓")
+    
+def ensure_weather_data(activities):
+    """Vérifie que chaque activité a les données météo et les calcule si elles sont absentes."""
+    updated = False
+
+    for act in activities:
+        if act.get("avg_temperature") is None or act.get("weather_code") is None:
+            points = act.get("points", [])
+            if not points:
+                continue
+
+            lat, lon = points[0].get("lat"), points[0].get("lng")
+            duration = (points[-1]["time"] - points[0]["time"]) / 60
+
+            avg_temp, _, _, weather_code = get_temperature_for_run(
+                lat, lon, act.get("date"), duration
+            )
+
+            act["avg_temperature"] = avg_temp
+            act["weather_code"] = weather_code
+            updated = True
+            print(f"🌤️ Météo ajoutée pour {act.get('date')} ➜ {avg_temp}°C / code {weather_code}")
+
+    if updated:
+        upload_json_content_to_drive(activities, 'activities.json')
+        print("💾 activities.json mis à jour avec la météo")
+
+    return activities
+
 
 # -------------------
 # Loaders
@@ -439,21 +468,39 @@ def compute_dashboard_data(activities):
     elif "start_latlng" in last and last["start_latlng"]:
         lat, lon = last["start_latlng"][0], last["start_latlng"][1]
 
-    # Température
-    avg_temperature, temp_debut, temp_fin = None, None, None
-    weather_code = None
+   # Température : utiliser la météo déjà stockée si disponible
+    avg_temperature = last.get("avg_temperature")
+    weather_code = last.get("weather_code")
+    temp_debut = avg_temperature
+    temp_fin = avg_temperature
+
     if lat is not None and lon is not None and date_str:
-        start_datetime_str = last.get("date")  # Ex: "2025-07-18T19:45:57Z"
-        duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60 if points else 0
-        avg_temperature, temp_debut, temp_fin, weather_code = get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes)
-        print(f"🌡️ Température début: {temp_debut}°C")
-        print(f"🌡️ Température fin: {temp_fin}°C")
-        print(f"🌡️ Température moyenne: {avg_temperature}°C")
+        # Si météo absente, on la calcule une seule fois et on la sauvegarde
+        if avg_temperature is None or weather_code is None:
+            start_datetime_str = last.get("date")  # Ex: "2025-07-18T19:45:57Z"
+            duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60 if points else 0
+
+            avg_temperature, temp_debut, temp_fin, weather_code = get_temperature_for_run(
+                lat, lon, start_datetime_str, duration_minutes
+            )
+
+            # Sauvegarde dans l'activité
+            last["avg_temperature"] = avg_temperature
+            last["weather_code"] = weather_code
+
+            # Met à jour activities.json pour éviter un recalcul futur
+            upload_json_content_to_drive(activities, 'activities.json')
+
+            print(f"🌡️ Température calculée et sauvegardée : {avg_temperature}°C")
+        else:
+            print(f"🌡️ Température lue depuis activities.json : {avg_temperature}°C")
     else:
         print("⚠️ Impossible d’appeler météo: coordonnées ou date manquantes.")
 
+    # Si aucun code météo n’est disponible, on force un fallback
     if weather_code is None:
-        weather_code = -1  # clé absente pour forcer fallback
+        weather_code = -1
+
 
     weather_emoji = weather_code_map.get(weather_code, "❓")
 
@@ -527,6 +574,7 @@ def index():
     
      # ⚡ Lecture simple : pas de recalcul automatique
     activities = load_activities()
+    activities = ensure_weather_data(activities)
     log_step("Activities chargées", start_time)
     print(f"📂 {len(activities)} activités chargées depuis Drive")
 
@@ -569,11 +617,9 @@ def index():
         gain_alt = round(points[-1]["alt"] - points[0]["alt"], 1)
 
         # 🌡️ Météo
-        avg_temperature, _, _, weather_code = get_temperature_for_run(
-            points[0].get("lat"), points[0].get("lng"),
-            act.get("date"), total_time_min
-        )
-        log_step(f"Météo activité {act.get('date')} récupérée", start_time)
+        avg_temperature = act.get("avg_temperature")
+        weather_code = act.get("weather_code")
+
         weather_code_map = {
             0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
             45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
