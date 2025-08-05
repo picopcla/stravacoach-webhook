@@ -11,6 +11,15 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import numpy as np
 import requests
+import time
+
+
+# -------------------
+# Fonction pour loguer les étapes avec durée
+# -------------------
+def log_step(message, start_time):
+    elapsed = time.time() - start_time
+    print(f"⏱️ {message} — {elapsed:.2f} sec depuis début")
 
 app = Flask(__name__)
 FOLDER_ID = '1OvCqOHHiOZoCOQtPaSwGoioR92S8-U7t'
@@ -204,16 +213,6 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
             # Sinon, on prend le code météo le plus proche du début de la course
             diffs = [abs((dt - start_dt).total_seconds()) for dt in hours_dt]
             most_common_code = weathercodes[diffs.index(min(diffs))] if diffs else None
-
-        
-            # 🖨️ DEBUG COMPLET
-        print(f"\n🌤️ DEBUG MÉTÉO [{query_type.upper()}]")
-        print(f"Heure début       : {start_dt}")
-        print(f"Heure fin         : {end_dt}")
-        print(f"Temp début        : {temp_debut}°C")
-        print(f"Temp fin          : {temp_fin}°C")
-        print(f"Temp moyenne      : {avg_temp}°C")
-        print(f"Code météo        : {most_common_code}")
 
         return avg_temp, temp_debut, temp_fin, most_common_code
 
@@ -522,15 +521,22 @@ def compute_dashboard_data(activities):
 
 @app.route("/")
 def index():
+    
+    start_time = time.time()
+    log_step("Début index()", start_time)
+    
      # ⚡ Lecture simple : pas de recalcul automatique
     activities = load_activities()
+    log_step("Activities chargées", start_time)
     print(f"📂 {len(activities)} activités chargées depuis Drive")
 
     dashboard = compute_dashboard_data(activities)
+    log_step("Dashboard calculé", start_time)
     activities_for_carousel = []
 
     # 🔹 Construction du carrousel
     for act in reversed(activities[-10:]):  # 10 dernières activités
+        log_step(f"Début carrousel activité {act.get('date')}", start_time)
         points = act.get("points", [])
         if not points:
             continue
@@ -567,6 +573,7 @@ def index():
             points[0].get("lat"), points[0].get("lng"),
             act.get("date"), total_time_min
         )
+        log_step(f"Météo activité {act.get('date')} récupérée", start_time)
         weather_code_map = {
             0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
             45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
