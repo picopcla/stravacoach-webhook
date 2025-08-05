@@ -115,84 +115,129 @@
     .stats-grid small { display: block; font-size: 0.7rem; color: #666; }
     canvas { width:100%; height:auto; margin-top:2rem; }
     .btn { display:block; width:100%; text-align:center; background:#007BFF; color:white; padding:10px; border-radius:5px; text-decoration:none; margin-top:1rem; }
+
+    /* CARROUSEL PRINCIPAL */
+    .carousel-container {
+        position: relative;
+        overflow: hidden;
+        border-radius: 10px;
+        background: #fff;
+        padding: 1rem;
+        margin-bottom: 2rem;
+    }
+    #mainCarouselSlides {
+        display: flex;
+        transition: transform 0.3s ease-in-out;
+        will-change: transform;
+    }
+    .carousel-slide {
+        min-width: 100%;
+        box-sizing: border-box;
+        padding: 0 1rem;
+        user-select: none;
+    }
+	.carousel-arrows {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin: 0.5rem 0 1rem 0; /* espace entre header et contenu */
+}
+
+	.carousel-arrows button {
+		background: #ef4423; /* fond orange */
+		border: none;
+		color: white; /* flèche blanche */
+		font-size: 2rem;
+		border-radius: 50%;
+		width: 50px;
+		height: 50px;
+		cursor: pointer;
+		transition: transform 0.2s;
+	}
+
+	.carousel-arrows button:hover {
+		transform: scale(1.2);
+	}
+
 </style>
 </head>
 <body>
 <div class="container">
-    <div class="header">
-        <div class="header-left">
-            <h1>
-                <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
-                StravaCoach
-            </h1>
-            <div class="header-info">
-                <p>Type : {{ dashboard.type_sortie }}</p>
-                <p>Date : {{ dashboard.date }}</p>
+
+    <!-- CARROUSEL PRINCIPAL -->
+    {% if activities_for_carousel %}
+	<div class="carousel-container" aria-label="Carrousel des activités">
+
+		<!-- ✅ Flèches sous le header -->
+		<div class="carousel-arrows">
+			<button id="mainPrevBtn" aria-label="Activité précédente">‹</button>
+			<button id="mainNextBtn" aria-label="Activité suivante">›</button>
+		</div>
+
+		<div id="mainCarouselSlides">
+			{% for act in activities_for_carousel %}
+            <div class="carousel-slide" role="group" aria-roledescription="slide" aria-label="Activité {{ loop.index }} sur {{ activities_for_carousel|length }}">
+                <div class="header">
+                    <div class="header-left">
+                        <h1>
+                            <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
+                            StravaCoach
+                        </h1>
+                        <div class="header-info">
+                            <p>Type : {{ act.type_sortie }}</p>
+                            <p>Date : {{ act.date }}</p>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        {% if act.temperature is not none %}
+                            Température : {{ act.temperature }}°C
+                            <br />
+                            <span class="weather-emoji">{{ act.weather_emoji }}</span>
+                        {% else %}
+                            Température : N/A
+                        {% endif %}
+                    </div>
+                    <div class="powered">powered by OpenAI</div>
+                </div>
+
+                <div class="type-coaching">
+                    <div>Ton coaching de : {{ act.type_sortie }}</div>
+                    <div class="date">le {{ act.date }}</div>
+                </div>
+
+                <div class="sub-header">
+                    <h2>Détails du dernier run</h2>
+                </div>
+                <div class="stats-grid">
+                    <div><small>Distance</small><div class="value">{{ act.distance_km }} km</div></div>
+                    <div><small>FC Moy</small><div class="value">{{ act.fc_moy }}</div></div>
+                    <div><small>Dérive Cardiaque</small><div class="value">{{ act.deriv_cardio }}</div></div>
+                    <div><small>Allure</small><div class="value">{{ act.allure }} /km</div></div>
+                    <div><small>FC Max</small><div class="value">{{ act.fc_max }}</div></div>
+                    <div><small>Gain Alt</small><div class="value">{{ act.gain_alt }} m</div></div>
+                    <div><small>Temps</small><div class="value">{{ act.duration_min }} min</div></div>
+                    <div><small>k Moy</small><div class="value">{{ act.k_moy }}</div></div>
+                    <div><small>Température</small>
+                        <div class="value">
+                            {% if act.temperature is not none %}
+                                {{ act.temperature }} °C
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sub-header">
+                    <h2>Allure, FC & Élévation</h2>
+                </div>
+                <canvas id="chartGlobal{{ loop.index0 }}"></canvas>
             </div>
+            {% endfor %}
         </div>
-        <div class="header-right">
-            {% if dashboard.temperature is not none %}
-                Température : {{ dashboard.temperature }}°C
-                <br />
-                <span class="weather-emoji">{{ dashboard.weather_emoji }}</span>
-            {% else %}
-                Température : N/A
-            {% endif %}
-        </div>
-        <div class="powered">
-            powered by OpenAI
-        </div>
-    </div>
-
-    <!-- Coaching type + date -->
-    <div class="type-coaching">
-        <div>Ton coaching de : {{ dashboard.type_sortie }}</div>
-        <div class="date">le {{ dashboard.date }}</div>
-    </div>
-
-    <!-- Objectifs -->
-    {% if objectives %}
-    <div class="objectives">
-        🎯 Objectifs :
-        {% if objectives.target_pace_long_run %}long run {{ objectives.target_pace_long_run }}{% endif %}
-        {% if objectives.target_pace_tempo %}, tempo {{ objectives.target_pace_tempo }}{% endif %}
-        {% if objectives.target_pace_interval %}, interval {{ objectives.target_pace_interval }}{% endif %}
-        {% if objectives.target_k %}, k {{ objectives.target_k }}{% endif %}
-        {% if objectives.max_heart_rate_drift %}, dérive max {{ objectives.max_heart_rate_drift }}{% endif %}
     </div>
     {% endif %}
-
-    <!-- Détails du dernier run remontés -->
-    {% if dashboard %}
-    <div class="sub-header">
-        <h2>Détails du dernier run</h2>
-    </div>
-    <div class="stats-grid">
-        <div><small>Distance</small><div class="value">{{ dashboard.distance_km }} km</div></div>
-        <div><small>FC Moy</small><div class="value">{{ dashboard.fc_moy }}</div></div>
-        <div><small>Dérive Cardiaque</small><div class="value">{{ dashboard.deriv_cardio }}</div></div>
-        <div><small>Allure</small><div class="value">{{ dashboard.allure }} /km</div></div>
-        <div><small>FC Max</small><div class="value">{{ dashboard.fc_max }}</div></div>
-        <div><small>Gain Alt</small><div class="value">{{ dashboard.gain_alt }} m</div></div>
-        <div><small>Temps</small><div class="value">{{ dashboard.duration_min }} min</div></div>
-        <div><small>k Moy</small><div class="value">{{ dashboard.k_moy }}</div></div>
-        <div><small>Température</small>
-            <div class="value">
-                {% if dashboard.temperature is not none %}
-                    {{ dashboard.temperature }} °C
-                {% else %}
-                    N/A
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Graphique Allure, FC & Élévation remonté -->
-    <div class="sub-header">
-        <h2>Allure, FC & Élévation</h2>
-    </div>
-    <canvas id="chartGlobal"></canvas>
-    {% endif %}
+    <!-- FIN CARROUSEL PRINCIPAL -->
 
     <!-- Commentaire court terme -->
     {% if short_term and short_term.commentaire %}
@@ -257,77 +302,208 @@ function formatPace(minutesDecimal) {
     return `${minutes}:${formattedSeconds}`;
 }
 
+// CARROUSEL PRINCIPAL
+(function(){
+    const carousel = document.getElementById('mainCarouselSlides');
+    if(!carousel) return;
+    const slides = carousel.querySelectorAll('.carousel-slide');
+    const prevBtn = document.getElementById('mainPrevBtn');
+    const nextBtn = document.getElementById('mainNextBtn');
+    const totalSlides = slides.length;
+    let currentIndex = 0;
+
+    function updateCarousel() {
+        carousel.style.transform = `translateX(${-currentIndex * 100}%)`;
+    }
+
+	// Flèche gauche -> passé
+	prevBtn.addEventListener('click', () => {
+		currentIndex = (currentIndex + 1) % totalSlides;
+		updateCarousel();
+	});
+
+	// Flèche droite -> retour vers plus récent
+	nextBtn.addEventListener('click', () => {
+		currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
+		updateCarousel();
+	});
+
+
+    // Swipe support mobile
+    let startX = 0;
+    let isDragging = false;
+
+	carousel.addEventListener('touchend', (e) => {
+		if (!isDragging) return;
+		const endX = e.changedTouches[0].clientX;
+		const diffX = endX - startX;
+
+		if (diffX > 40) {
+			// Swipe vers la droite → on veut aller dans le passé (comme flèche gauche)
+			currentIndex = (currentIndex + 1) % totalSlides;
+			updateCarousel();
+		} else if (diffX < -40) {
+			// Swipe vers la gauche → retour vers plus récent (comme flèche droite)
+			currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
+			updateCarousel();
+		}
+		isDragging = false;
+	});
+
+    updateCarousel();
+
+    // Création des graphiques Chart.js pour chaque slide
+    {% for act in activities_for_carousel %}
+    {
+        const ctx{{ loop.index0 }} = document.getElementById('chartGlobal{{ loop.index0 }}').getContext('2d');
+        const labels{{ loop.index0 }} = {{ act.labels | safe }};
+        const fc{{ loop.index0 }} = {{ act.points_fc | safe }};
+        const allure{{ loop.index0 }} = {{ act.allure_curve | safe }};
+        const elevationData{{ loop.index0 }} = {{ act.points_alt | safe }};
+        const minElevation{{ loop.index0 }} = elevationData{{ loop.index0 }}.length > 0 ? Math.min(...elevationData{{ loop.index0 }}) : 0;
+        const newMinY2{{ loop.index0 }} = minElevation{{ loop.index0 }} - 5;
+        const elevationLineColor = 'brown';
+
+        new Chart(ctx{{ loop.index0 }}, {
+            type: 'line',
+            data: {
+                labels: labels{{ loop.index0 }},
+                datasets: [
+                    { label: 'Allure (min/km)', data: allure{{ loop.index0 }}, borderColor:'blue', borderWidth:1.5, yAxisID:'y', fill:false, tension:0.8, pointRadius:0 },
+                    { label: 'FC (bpm)', data: fc{{ loop.index0 }}, borderColor:'red', borderWidth:1.5, yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
+                    {
+                        label: 'Élévation (m)',
+                        data: elevationData{{ loop.index0 }},
+                        borderColor: elevationLineColor,
+                        borderWidth:1.5,
+                        yAxisID:'y2',
+                        backgroundColor: function(context) {
+                            const chart = context.chart;
+                            const {ctx, chartArea} = chart;
+                            if (!chartArea) return null;
+                            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                            gradient.addColorStop(0, elevationLineColor);
+                            gradient.addColorStop(1, 'white');
+                            return gradient;
+                        },
+                        fill:'start',
+                        tension:0,
+                        pointRadius:0
+                    }
+                ]
+            },
+            options: {
+                responsive:true,
+                plugins: { legend: { position:'bottom' }},
+                scales: {
+                    x: { title: { display: true, text: 'Distance (km)' }},
+                    y: {
+                        type:'linear',
+                        position:'left',
+                        min:3.5,
+                        title: { display: true, text: 'Allure (min/km)' },
+                        ticks: {
+                            callback: function(value) {
+                                return formatPace(value);
+                            }
+                        }
+                    },
+                    y1: {
+                        type:'linear',
+                        position:'right',
+                        min:0,
+                        grid:{drawOnChartArea:false},
+                        title: { display: true, text: 'FC (bpm)' }
+                    },
+                    y2: {
+                        type:'linear',
+                        position:'right',
+                        min: newMinY2{{ loop.index0 }},
+                        max: 60,
+                        grid:{drawOnChartArea:false},
+                        title: { display: true, text: 'Élévation (m)' }
+                    }
+                }
+            }
+        });
+    }
+    {% endfor %}
+})();
+
+// GRAPHIQUES FIXES EN BAS
 const elevationData = {{ dashboard.points_alt | safe }};
 const minElevation = elevationData.length > 0 ? Math.min(...elevationData) : 0; 
 const newMinY2 = minElevation - 5; 
 const elevationLineColor = 'brown'; 
 
 const labels = {{ dashboard.labels | safe }};
-const ctx = document.getElementById('chartGlobal').getContext('2d');
-const chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: labels,
-        datasets: [
-            { label: 'Allure (min/km)', data: {{ dashboard.allure_curve | safe }}, borderColor:'blue', borderWidth:1.5, yAxisID:'y', fill:false, tension:0.8, pointRadius:0 },
-            { label: 'FC (bpm)', data: {{ dashboard.points_fc | safe }}, borderColor:'red', borderWidth:1.5, yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
-            {
-                label: 'Élévation (m)',
-                data: elevationData,
-                borderColor: elevationLineColor,
-                borderWidth:1.5,
-                yAxisID:'y2',
-                backgroundColor: function(context) {
-                    const chart = context.chart;
-                    const {ctx, chartArea} = chart;
-                    if (!chartArea) return null;
-                    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                    gradient.addColorStop(0, elevationLineColor);
-                    gradient.addColorStop(1, 'white');
-                    return gradient;
-                },
-                fill:'start',
-                tension:0,
-                pointRadius:0
-            }
-        ]
-    },
-    options: {
-        responsive:true,
-        plugins: { legend: { position:'bottom' }},
-        scales: {
-            x: {
-                title: { display: true, text: 'Distance (km)' }
-            },
-            y: {
-                type:'linear',
-                position:'left',
-                min:3.5,
-                title: { display: true, text: 'Allure (min/km)' },
-                ticks: {
-                    callback: function(value) {
-                        return formatPace(value);
-                    }
+const ctx = document.getElementById('chartGlobal');
+if(ctx){
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                { label: 'Allure (min/km)', data: {{ dashboard.allure_curve | safe }}, borderColor:'blue', borderWidth:1.5, yAxisID:'y', fill:false, tension:0.8, pointRadius:0 },
+                { label: 'FC (bpm)', data: {{ dashboard.points_fc | safe }}, borderColor:'red', borderWidth:1.5, yAxisID:'y1', fill:false, tension:0.4, pointRadius:0 },
+                {
+                    label: 'Élévation (m)',
+                    data: elevationData,
+                    borderColor: elevationLineColor,
+                    borderWidth:1.5,
+                    yAxisID:'y2',
+                    backgroundColor: function(context) {
+                        const chart = context.chart;
+                        const {ctx, chartArea} = chart;
+                        if (!chartArea) return null;
+                        const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                        gradient.addColorStop(0, elevationLineColor);
+                        gradient.addColorStop(1, 'white');
+                        return gradient;
+                    },
+                    fill:'start',
+                    tension:0,
+                    pointRadius:0
                 }
-            },
-            y1: { 
-                type:'linear', 
-                position:'right', 
-                min:0, 
-                grid:{drawOnChartArea:false}, 
-                title: { display: true, text: 'FC (bpm)' }
-            },
-            y2: {
-                type:'linear',
-                position:'right',
-                min: newMinY2,
-                max: 60,
-                grid:{drawOnChartArea:false},
-                title: { display: true, text: 'Élévation (m)' }
+            ]
+        },
+        options: {
+            responsive:true,
+            plugins: { legend: { position:'bottom' }},
+            scales: {
+                x: {
+                    title: { display: true, text: 'Distance (km)' }
+                },
+                y: {
+                    type:'linear',
+                    position:'left',
+                    min:3.5,
+                    title: { display: true, text: 'Allure (min/km)' },
+                    ticks: {
+                        callback: function(value) {
+                            return formatPace(value);
+                        }
+                    }
+                },
+                y1: { 
+                    type:'linear', 
+                    position:'right', 
+                    min:0, 
+                    grid:{drawOnChartArea:false}, 
+                    title: { display: true, text: 'FC (bpm)' }
+                },
+                y2: {
+                    type:'linear',
+                    position:'right',
+                    min: newMinY2,
+                    max: 60,
+                    grid:{drawOnChartArea:false},
+                    title: { display: true, text: 'Élévation (m)' }
+                }
             }
         }
-    }
-});
+    });
+}
 
 const ctxK = document.getElementById('chartK').getContext('2d');
 const chartK = new Chart(ctxK, {

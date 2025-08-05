@@ -2,7 +2,7 @@ import os
 import json
 import io
 from datetime import datetime, timedelta
-
+from dateutil import parser
 from flask import Flask, render_template, request, redirect
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -108,29 +108,39 @@ from datetime import datetime, timedelta, date
 import requests
 from collections import Counter
 
+from dateutil import parser  # déjà importé
+
 def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
     try:
-        start_dt = datetime.strptime(start_datetime_str, "%Y-%m-%dT%H:%M:%SZ")
+        # ✅ Parse ISO 8601 (Z ou +02:00)
+        start_dt = parser.isoparse(start_datetime_str)
         end_dt = start_dt + timedelta(minutes=duration_minutes)
+
+        # ✅ Supprime le fuseau pour comparer avec les données naïves de l'API
+        start_dt = start_dt.replace(tzinfo=None)
+        end_dt = end_dt.replace(tzinfo=None)
+
         print(f"🕒 Heure début (start_dt): {start_dt}, fin (end_dt): {end_dt}")
     except Exception as e:
-        print("❌ Erreur parsing datetime pour météo:", e)
+        print("❌ Erreur parsing datetime pour météo:", e, start_datetime_str)
         return None, None, None, None
 
     today = date.today()
+    yesterday = today - timedelta(days=1)
     is_today = start_dt.date() == today
+    is_yesterday = start_dt.date() == yesterday
 
-    if is_today:
-        # 🎯 API en temps réel
+    # ✅ Utilise forecast pour aujourd'hui et hier
+    if is_today or is_yesterday:
         url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={lat}&longitude={lon}"
             f"&hourly=temperature_2m,weathercode"
             f"&timezone=auto"
         )
-        print("🌐 Requête météo (temps réel) URL:", url)
+        print("🌐 Requête météo (forecast) URL:", url)
     else:
-        # 🕰️ API archive
+        # Archive pour avant-hier et plus
         date_str = start_dt.strftime("%Y-%m-%d")
         url = (
             f"https://archive-api.open-meteo.com/v1/archive?"
@@ -154,8 +164,10 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
             print("⚠️ Aucune donnée horaire trouvée.")
             return None, None, None, None
 
+        # Convertit toutes les heures en datetime (naïves) pour comparaison
         hours_dt = [datetime.fromisoformat(h) for h in hours]
 
+        # Trouver la température la plus proche pour début et fin
         def closest_temp(target_dt):
             diffs = [abs((dt - target_dt).total_seconds()) for dt in hours_dt]
             idx = diffs.index(min(diffs))
@@ -164,13 +176,19 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
         temp_debut = closest_temp(start_dt)
         temp_fin = closest_temp(end_dt)
 
+        # Moyenne sur la fenêtre de course
         temp_values = [
             temp for dt, temp in zip(hours_dt, temps)
             if start_dt <= dt <= end_dt and temp is not None
         ]
 
-        avg_temp = round(sum(temp_values) / len(temp_values), 1) if temp_values else None
+        # ✅ Si pas de moyenne, utiliser au moins temp_debut ou temp_fin
+        avg_temp = (
+            round(sum(temp_values) / len(temp_values), 1)
+            if temp_values else temp_debut or temp_fin
+        )
 
+        # Code météo le plus fréquent pendant la course
         weather_in_window = [
             wc for dt, wc in zip(hours_dt, weathercodes)
             if start_dt <= dt <= end_dt and wc is not None
@@ -184,6 +202,30 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
         return None, None, None, None
 
 
+
+def get_weather_emoji_for_activity(activity):
+    weather_code_map = {
+        0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+        45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
+        55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️",
+        71: "❄️", 73: "❄️", 75: "❄️", 80: "🌧️",
+        81: "🌧️", 82: "🌧️", 95: "⛈️", 96: "⛈️",
+        99: "⛈️"
+    }
+    points = activity.get("points", [])
+    if not points:
+        return "❓"
+    lat, lon = None, None
+    if "lat" in points[0] and "lng" in points[0]:
+        lat, lon = points[0]["lat"], points[0]["lng"]
+    elif "start_latlng" in activity and activity["start_latlng"]:
+        lat, lon = activity["start_latlng"][0], activity["start_latlng"][1]
+    date_str = activity.get("date", None)
+    if not lat or not lon or not date_str:
+        return "❓"
+    duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60
+    _, _, _, weather_code = get_temperature_for_run(lat, lon, date_str, duration_minutes)
+    return weather_code_map.get(weather_code, "❓")
 
 # -------------------
 # Loaders
@@ -469,15 +511,104 @@ def index():
     activities = enrich_activities(activities)
     upload_json_content_to_drive(activities, 'activities.json')
     print("💾 activities.json mis à jour")
+    
     dashboard = compute_dashboard_data(activities)
     print("TYPE SORTIE =", dashboard.get("type_sortie"))
     print("📊 Dashboard calculé")
     print("DATE =", dashboard.get("date"))
     print("TEMPÉRATURE =", dashboard.get("avg_temperature"))
-    return render_template("index.html",
-                           dashboard=dashboard,
-                           objectives=load_objectives(),
-                           short_term=load_short_term_objectives())
+
+    activities_for_carousel = []
+
+    # 🔹 Boucle pour construire le carrousel
+    for act in reversed(activities[-10:]):  # Les 10 dernières, la plus récente en premier
+        points = act.get("points", [])
+        if not points:
+            continue
+
+        # Données de base
+        labels = [round(p["distance"] / 1000, 3) for p in points]
+        points_fc = [p.get("hr", 0) for p in points]
+        points_alt = [p.get("alt", 0) - points[0].get("alt", 0) for p in points]
+
+        # Calcul allure_curve tous les 500m
+        allure_curve = []
+        bloc_start_idx, next_bloc_dist, last_allure = 0, 500, None
+        for i, p in enumerate(points):
+            if p["distance"] >= next_bloc_dist or i == len(points) - 1:
+                bloc_points = points[bloc_start_idx:i + 1]
+                bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
+                bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
+                if bloc_dist > 0:
+                    last_allure = (bloc_time / 60) / (bloc_dist / 1000)
+                allure_curve.extend([last_allure] * len(bloc_points))
+                bloc_start_idx = i + 1
+                next_bloc_dist += 500
+        while len(allure_curve) < len(points):
+            allure_curve.append(last_allure)
+
+        # Statistiques globales
+        total_dist_km = points[-1]["distance"] / 1000
+        total_time_min = (points[-1]["time"] - points[0]["time"]) / 60
+        allure_moy = total_time_min / total_dist_km if total_dist_km > 0 else None
+        fc_max = max(points_fc) if points_fc else None
+        gain_alt = round(points[-1]["alt"] - points[0]["alt"], 1)
+
+        # 🌡️ Météo + Emoji en une seule requête
+        avg_temperature, _, _, weather_code = get_temperature_for_run(
+            points[0].get("lat"), points[0].get("lng"),
+            act.get("date"), total_time_min
+        )
+
+        # ✅ Emoji météo directement depuis le code
+        weather_code_map = {
+            0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+            45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
+            55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️",
+            71: "❄️", 73: "❄️", 75: "❄️", 80: "🌧️",
+            81: "🌧️", 82: "🌧️", 95: "⛈️", 96: "⛈️", 99: "⛈️"
+        }
+        weather_emoji = weather_code_map.get(weather_code, "❓")
+
+        # Date formatée
+        try:
+            date_formatted = datetime.strptime(
+                act.get("date"), "%Y-%m-%dT%H:%M:%S%z"
+            ).strftime("%Y-%m-%d")
+        except:
+            date_formatted = "-"
+
+        activities_for_carousel.append({
+            "date": date_formatted,
+            "type_sortie": act.get("type_sortie", "-"),
+            "distance_km": round(total_dist_km, 2),
+            "duration_min": round(total_time_min, 1),
+            "fc_moy": round(np.mean(points_fc), 1) if points_fc else "-",
+            "fc_max": fc_max,
+            "allure": f"{int(allure_moy)}:{int((allure_moy - int(allure_moy)) * 60):02d}" if allure_moy else "-",
+            "gain_alt": gain_alt,
+            "k_moy": act.get("k_moy", "-"),
+            "deriv_cardio": act.get("deriv_cardio", "-"),
+            "temperature": avg_temperature,
+            "weather_emoji": weather_emoji,
+            "labels": json.dumps(labels),
+            "points_fc": json.dumps(points_fc),
+            "points_alt": json.dumps(points_alt),
+            "allure_curve": json.dumps(allure_curve),
+        })
+
+    # 🔹 Retourne la page
+    return render_template(
+        "index.html",
+        dashboard=dashboard,
+        objectives=load_objectives(),
+        short_term=load_short_term_objectives(),
+        activities_for_carousel=activities_for_carousel
+    )
+
+
+
+                           
 
 @app.route('/profile', methods=['GET','POST'])
 def profile():
