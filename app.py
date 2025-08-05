@@ -520,32 +520,21 @@ def compute_dashboard_data(activities):
         "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
     }
 
-from flask import Flask, render_template, request, redirect
-# Assure-toi d'importer aussi tes fonctions load_profile(), upload_json_content_to_drive(), etc.
-
 @app.route("/")
 def index():
+     # ⚡ Lecture simple : pas de recalcul automatique
     activities = load_activities()
     print(f"📂 {len(activities)} activités chargées depuis Drive")
-    activities = enrich_activities(activities)
-    upload_json_content_to_drive(activities, 'activities.json')
-    print("💾 activities.json mis à jour")
-    
-    dashboard = compute_dashboard_data(activities)
-    print("TYPE SORTIE =", dashboard.get("type_sortie"))
-    print("📊 Dashboard calculé")
-    print("DATE =", dashboard.get("date"))
-    print("TEMPÉRATURE =", dashboard.get("avg_temperature"))
 
+    dashboard = compute_dashboard_data(activities)
     activities_for_carousel = []
 
-    # 🔹 Boucle pour construire le carrousel
-    for act in reversed(activities[-10:]):  # Les 10 dernières, la plus récente en premier
+    # 🔹 Construction du carrousel
+    for act in reversed(activities[-10:]):  # 10 dernières activités
         points = act.get("points", [])
         if not points:
             continue
 
-        # Données de base
         labels = [round(p["distance"] / 1000, 3) for p in points]
         points_fc = [p.get("hr", 0) for p in points]
         points_alt = [p.get("alt", 0) - points[0].get("alt", 0) for p in points]
@@ -573,13 +562,11 @@ def index():
         fc_max = max(points_fc) if points_fc else None
         gain_alt = round(points[-1]["alt"] - points[0]["alt"], 1)
 
-        # 🌡️ Météo + Emoji en une seule requête
+        # 🌡️ Météo
         avg_temperature, _, _, weather_code = get_temperature_for_run(
             points[0].get("lat"), points[0].get("lng"),
             act.get("date"), total_time_min
         )
-
-        # ✅ Emoji météo directement depuis le code
         weather_code_map = {
             0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
             45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
@@ -624,11 +611,17 @@ def index():
         short_term=load_short_term_objectives(),
         activities_for_carousel=activities_for_carousel
     )
-
-
-
-                           
-
+    
+@app.route("/refresh")
+def refresh():
+    """Recalcule et met à jour activities.json sur Drive"""
+    print("♻️ Recalcul des activités...")
+    activities = load_activities()
+    activities = enrich_activities(activities)
+    upload_json_content_to_drive(activities, 'activities.json')
+    print("✅ activities.json mis à jour sur Drive")
+    return "✅ Données mises à jour"
+      
 @app.route('/profile', methods=['GET','POST'])
 def profile():
     profile = load_profile()
