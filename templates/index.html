@@ -144,12 +144,13 @@
         </div>
     </div>
 
-    <!-- Le reste inchangé -->
+    <!-- Coaching type + date -->
     <div class="type-coaching">
         <div>Ton coaching de : {{ dashboard.type_sortie }}</div>
         <div class="date">le {{ dashboard.date }}</div>
     </div>
 
+    <!-- Objectifs -->
     {% if objectives %}
     <div class="objectives">
         🎯 Objectifs :
@@ -161,35 +162,7 @@
     </div>
     {% endif %}
 
-    {% if short_term and short_term.commentaire %}
-    <div class="short-term-comment">
-        📝 {{ short_term.commentaire }}
-    </div>
-    {% endif %}
-
-    {% if short_term and short_term.prochains_runs %}
-    <div class="next-runs">
-        <table>
-            <thead>
-                <tr>
-                    <th>Type</th>
-                    <th>Distance (km)</th>
-                    <th>Allure cible</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for run in short_term.prochains_runs %}
-                <tr>
-                    <td>{{ run.type }}</td>
-                    <td>{{ run.distance }}</td>
-                    <td>{{ run.allure }}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
-
+    <!-- Détails du dernier run remontés -->
     {% if dashboard %}
     <div class="sub-header">
         <h2>Détails du dernier run</h2>
@@ -213,13 +186,46 @@
             </div>
         </div>
     </div>
-    {% endif %}
 
+    <!-- Graphique Allure, FC & Élévation remonté -->
     <div class="sub-header">
         <h2>Allure, FC & Élévation</h2>
     </div>
     <canvas id="chartGlobal"></canvas>
-    
+    {% endif %}
+
+    <!-- Commentaire court terme -->
+    {% if short_term and short_term.commentaire %}
+    <div class="short-term-comment">
+        📝 {{ short_term.commentaire }}
+    </div>
+    {% endif %}
+
+    <!-- Prochains runs (tableau) -->
+    {% if short_term and short_term.prochains_runs %}
+    <div class="next-runs">
+        <table>
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Distance (km)</th>
+                    <th>Allure cible</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for run in short_term.prochains_runs %}
+                <tr>
+                    <td>{{ run.type }}</td>
+                    <td>{{ run.distance }}</td>
+                    <td>{{ run.allure }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Efficacité cardiaque (k) -->
     <div class="sub-header">
         <h2>Évolution efficacité cardiaque (k)</h2>
     </div>
@@ -228,6 +234,7 @@
     </p>
     <canvas id="chartK"></canvas>
 
+    <!-- Dérive cardio -->
     <div class="sub-header">
         <h2>Évolution dérive cardio</h2>
     </div>
