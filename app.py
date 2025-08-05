@@ -130,16 +130,17 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
     is_today = start_dt.date() == today
     is_yesterday = start_dt.date() == yesterday
 
-    # ✅ Utilise forecast pour aujourd'hui et hier
+   # ✅ Utilise forecast pour aujourd'hui et hier
     if is_today or is_yesterday:
+        query_type = "forecast"
         url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={lat}&longitude={lon}"
             f"&hourly=temperature_2m,weathercode"
             f"&timezone=auto"
         )
-        print("🌐 Requête météo (forecast) URL:", url)
     else:
+        query_type = "archive"
         # Archive pour avant-hier et plus
         date_str = start_dt.strftime("%Y-%m-%d")
         url = (
@@ -149,7 +150,6 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
             f"&hourly=temperature_2m,weathercode"
             f"&timezone=auto"
         )
-        print("🌐 Requête météo (archive) URL:", url)
 
     try:
         response = requests.get(url)
@@ -189,11 +189,31 @@ def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
         )
 
         # Code météo le plus fréquent pendant la course
+# ✅ Trouver le code météo dominant avec une marge de 30 min
+
+        margin = timedelta(minutes=30)
         weather_in_window = [
             wc for dt, wc in zip(hours_dt, weathercodes)
-            if start_dt <= dt <= end_dt and wc is not None
+            if (start_dt - margin) <= dt <= (end_dt + margin) and wc is not None
         ]
-        most_common_code = Counter(weather_in_window).most_common(1)[0][0] if weather_in_window else None
+
+        if weather_in_window:
+            # Si on a trouvé des codes météo dans la fenêtre élargie, on prend le plus fréquent
+            most_common_code = Counter(weather_in_window).most_common(1)[0][0]
+        else:
+            # Sinon, on prend le code météo le plus proche du début de la course
+            diffs = [abs((dt - start_dt).total_seconds()) for dt in hours_dt]
+            most_common_code = weathercodes[diffs.index(min(diffs))] if diffs else None
+
+        
+            # 🖨️ DEBUG COMPLET
+        print(f"\n🌤️ DEBUG MÉTÉO [{query_type.upper()}]")
+        print(f"Heure début       : {start_dt}")
+        print(f"Heure fin         : {end_dt}")
+        print(f"Temp début        : {temp_debut}°C")
+        print(f"Temp fin          : {temp_fin}°C")
+        print(f"Temp moyenne      : {avg_temp}°C")
+        print(f"Code météo        : {most_common_code}")
 
         return avg_temp, temp_debut, temp_fin, most_common_code
 
@@ -419,7 +439,6 @@ def compute_dashboard_data(activities):
         lat, lon = points[0]["lat"], points[0]["lng"]
     elif "start_latlng" in last and last["start_latlng"]:
         lat, lon = last["start_latlng"][0], last["start_latlng"][1]
-    print("📍 GPS activité:", lat, lon)
 
     # Température
     avg_temperature, temp_debut, temp_fin = None, None, None
