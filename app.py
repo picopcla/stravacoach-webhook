@@ -568,21 +568,47 @@ def compute_dashboard_data(activities):
 
 @app.route("/")
 def index():
-    
     start_time = time.time()
     log_step("Début index()", start_time)
-    
-     # ⚡ Lecture simple : pas de recalcul automatique
-    activities = load_activities()
-    activities = ensure_weather_data(activities)
-    log_step("Activities chargées", start_time)
-    print(f"📂 {len(activities)} activités chargées depuis Drive")
 
+    # Charger les activités
+    activities = load_activities()
+
+    # Vérifier si certaines activités sont incomplètes
+    needs_weather = any(
+        act.get("avg_temperature") is None or act.get("weather_code") is None
+        for act in activities
+    )
+    needs_enrich = any(
+        act.get("k_moy") in (None, "-") or act.get("deriv_cardio") in (None, "-")
+        for act in activities
+    )
+
+    modified = False
+    if needs_weather:
+        print("🌤️ Météo manquante → calcul météo")
+        activities = ensure_weather_data(activities)
+        modified = True
+
+    if needs_enrich:
+        print("📈 Enrichissement manquant → enrichissement")
+        activities = enrich_activities(activities)
+        modified = True
+
+    if modified:
+        upload_json_content_to_drive(activities, 'activities.json')
+        print("💾 activities.json mis à jour après complétion")
+
+    log_step("Activities chargées et complétées", start_time)
+    print(f"📂 {len(activities)} activités prêtes")
+
+    # Calcul du dashboard
     dashboard = compute_dashboard_data(activities)
     log_step("Dashboard calculé", start_time)
+
     activities_for_carousel = []
 
-    # 🔹 Construction du carrousel
+    # Construction du carrousel (inchangé)
     for act in reversed(activities[-10:]):  # 10 dernières activités
         log_step(f"Début carrousel activité {act.get('date')}", start_time)
         points = act.get("points", [])
@@ -619,7 +645,6 @@ def index():
         # 🌡️ Météo
         avg_temperature = act.get("avg_temperature")
         weather_code = act.get("weather_code")
-
         weather_code_map = {
             0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
             45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
@@ -656,7 +681,7 @@ def index():
             "allure_curve": json.dumps(allure_curve),
         })
 
-    # 🔹 Retourne la page
+    # Retourne la page
     return render_template(
         "index.html",
         dashboard=dashboard,
@@ -664,6 +689,7 @@ def index():
         short_term=load_short_term_objectives(),
         activities_for_carousel=activities_for_carousel
     )
+
     
 @app.route("/refresh")
 def refresh():
