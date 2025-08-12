@@ -122,7 +122,7 @@
         overflow: hidden;
         border-radius: 10px;
         background: #fff;
-        padding: 1rem;
+        padding: 0;
         margin-bottom: 2rem;
     }
     #mainCarouselSlides {
@@ -133,7 +133,7 @@
     .carousel-slide {
         min-width: 100%;
         box-sizing: border-box;
-        padding: 0 1rem;
+        padding: 0;
         user-select: none;
     }
 	.carousel-arrows {
@@ -160,17 +160,45 @@
 	}
 
 
-/* Mode plein écran pour les graphiques */
-canvas.fullscreen {
+/* ======= Overlay plein écran pour graphiques ======= */
+#chartOverlay{
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw !important;
-  height: 100vh !important;
-  background: white;
-  z-index: 9999;
-  margin: 0 !important;
-  padding: 0 !important;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+#chartOverlay.open{ display: flex; }
+#chartOverlay .overlay-content{
+  position: relative;
+  width: 95vw;
+  height: 90vh;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#chartOverlay .overlay-content canvas{
+  width: 100% !important;
+  height: 100% !important;
+}
+#chartOverlay .close-btn{
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  background: #ef4423;
+  color: #fff;
+  cursor: pointer;
 }
 
 </style>
@@ -574,19 +602,179 @@ const chartDrift = new Chart(ctxDrift, {
     }
 });
 
-// --- Plein écran au clic/tap pour tous les graphiques ---
+
+// ====== Helpers for fullscreen font scaling ======
+const __chartPrevFonts = new WeakMap();
+
+function adjustChartFonts(chart, mode){
+  if(!chart) return;
+  const scales = chart.options.scales || {};
+  const legend = chart.options.plugins && chart.options.plugins.legend ? chart.options.plugins.legend : null;
+
+  if(mode === 'fullscreen'){
+    // Save current sizes once
+    if(!__chartPrevFonts.has(chart)){
+      __chartPrevFonts.set(chart, {
+        xTick: (scales.x && scales.x.ticks && scales.x.ticks.font && scales.x.ticks.font.size) || 12,
+        yTick: (scales.y && scales.y.ticks && scales.y.ticks.font && scales.y.ticks.font.size) || 12,
+        y1Tick: (scales.y1 && scales.y1.ticks && scales.y1.ticks.font && scales.y1.ticks.font.size) || 12,
+        y2Tick: (scales.y2 && scales.y2.ticks && scales.y2.ticks.font && scales.y2.ticks.font.size) || 12,
+        xTitle: (scales.x && scales.x.title && scales.x.title.font && scales.x.title.font.size) || 12,
+        yTitle: (scales.y && scales.y.title && scales.y.title.font && scales.y.title.font.size) || 12,
+        y1Title: (scales.y1 && scales.y1.title && scales.y1.title.font && scales.y1.title.font.size) || 12,
+        y2Title: (scales.y2 && scales.y2.title && scales.y2.title.font && scales.y2.title.font.size) || 12,
+        legend: (legend && legend.labels && legend.labels.font && legend.labels.font.size) || 12,
+      });
+    }
+
+    // Compute a base size from canvas width
+    const w = chart.canvas.clientWidth || 800;
+    const base = Math.max(14, Math.min(24, Math.round(w / 48))); // scale between 14 and 24
+
+    if(scales.x){
+      scales.x.ticks = scales.x.ticks || {};
+      scales.x.ticks.font = Object.assign({}, scales.x.ticks.font, { size: base });
+      if(scales.x.title){
+        scales.x.title.font = Object.assign({}, scales.x.title.font, { size: base });
+      }
+    }
+    if(scales.y){
+      scales.y.ticks = scales.y.ticks || {};
+      scales.y.ticks.font = Object.assign({}, scales.y.ticks.font, { size: base });
+      if(scales.y.title){
+        scales.y.title.font = Object.assign({}, scales.y.title.font, { size: base });
+      }
+    }
+    if(scales.y1){
+      scales.y1.ticks = scales.y1.ticks || {};
+      scales.y1.ticks.font = Object.assign({}, scales.y1.ticks.font, { size: base });
+      if(scales.y1.title){
+        scales.y1.title.font = Object.assign({}, scales.y1.title.font, { size: base });
+      }
+    }
+    if(scales.y2){
+      scales.y2.ticks = scales.y2.ticks || {};
+      scales.y2.ticks.font = Object.assign({}, scales.y2.ticks.font, { size: base });
+      if(scales.y2.title){
+        scales.y2.title.font = Object.assign({}, scales.y2.title.font, { size: base });
+      }
+    }
+    if(legend){
+      legend.labels = legend.labels || {};
+      legend.labels.font = Object.assign({}, legend.labels.font, { size: base });
+    }
+  } else {
+    // restore
+    const prev = __chartPrevFonts.get(chart);
+    const def = 12;
+    if(scales.x){
+      scales.x.ticks = scales.x.ticks || {};
+      scales.x.ticks.font = Object.assign({}, scales.x.ticks.font, { size: prev ? prev.xTick : def });
+      if(scales.x.title){
+        scales.x.title.font = Object.assign({}, scales.x.title.font, { size: prev ? prev.xTitle : def });
+      }
+    }
+    if(scales.y){
+      scales.y.ticks = scales.y.ticks || {};
+      scales.y.ticks.font = Object.assign({}, scales.y.ticks.font, { size: prev ? prev.yTick : def });
+      if(scales.y.title){
+        scales.y.title.font = Object.assign({}, scales.y.title.font, { size: prev ? prev.yTitle : def });
+      }
+    }
+    if(scales.y1){
+      scales.y1.ticks = scales.y1.ticks || {};
+      scales.y1.ticks.font = Object.assign({}, scales.y1.ticks.font, { size: prev ? prev.y1Tick : def });
+      if(scales.y1.title){
+        scales.y1.title.font = Object.assign({}, scales.y1.title.font, { size: prev ? prev.y1Title : def });
+      }
+    }
+    if(scales.y2){
+      scales.y2.ticks = scales.y2.ticks || {};
+      scales.y2.ticks.font = Object.assign({}, scales.y2.ticks.font, { size: prev ? prev.y2Tick : def });
+      if(scales.y2.title){
+        scales.y2.title.font = Object.assign({}, scales.y2.title.font, { size: prev ? prev.y2Title : def });
+      }
+    }
+    if(legend){
+      legend.labels = legend.labels || {};
+      legend.labels.font = Object.assign({}, legend.labels.font, { size: prev ? prev.legend : def });
+    }
+  }
+  chart.update('none');
+}
+
+// ======= Overlay plein écran pour graphiques =======
 (function(){
-  function toggleFullscreen(e){
-    e.preventDefault();
-    e.stopPropagation();
-    const c = e.currentTarget;
-    c.classList.toggle('fullscreen');
+  // Crée l'overlay au chargement
+  const overlay = document.createElement('div');
+  overlay.id = 'chartOverlay';
+  overlay.innerHTML = '<div class="overlay-content"><button class="close-btn" aria-label="Fermer">✕</button></div>';
+  document.body.appendChild(overlay);
+  const content = overlay.querySelector('.overlay-content');
+  const closeBtn = overlay.querySelector('.close-btn');
+
+  // Mémorise l'emplacement d'origine de chaque canvas
+  const originalPlace = new Map();
+
+  function openOverlay(canvas){
+    if(!originalPlace.has(canvas)){
+      originalPlace.set(canvas, { parent: canvas.parentNode, next: canvas.nextSibling });
+    }
+    content.appendChild(canvas);
+    overlay.classList.add('open');
+
+    // Forcer Chart.js à s'ajuster
+    try{
+      const chart = Chart.getChart(canvas);
+      if(chart){
+        chart.options.maintainAspectRatio = false;
+        // Ajuste polices en plein écran
+        adjustChartFonts(chart, 'fullscreen');
+        // Laisse le DOM peindre l'overlay puis resize
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => chart.resize());
+        });
+      }
+    }catch(e){ /* ignore */ }
   }
 
-  // Sélectionner tous les canvas chart.js
-  const canvases = document.querySelectorAll('canvas');
-  canvases.forEach((c) => {
-    c.addEventListener('pointerdown', toggleFullscreen, {passive:false});
+  function closeOverlay(){
+    const canvas = content.querySelector('canvas');
+    if(!canvas) { overlay.classList.remove('open'); return; }
+    const meta = originalPlace.get(canvas);
+    if(meta){
+      if(meta.next){ meta.parent.insertBefore(canvas, meta.next); }
+      else { meta.parent.appendChild(canvas); }
+    }
+    overlay.classList.remove('open');
+
+    // Restaure le comportement par défaut
+    try{
+      const chart = Chart.getChart(canvas);
+      if(chart){
+        chart.options.maintainAspectRatio = true;
+        adjustChartFonts(chart, 'normal');
+        requestAnimationFrame(() => chart.resize());
+      }
+    }catch(e){ /* ignore */ }
+  }
+
+  // Ouvrir au tap/clic sur n'importe quel canvas
+  document.querySelectorAll('canvas').forEach((c) => {
+    c.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openOverlay(c);
+    }, {passive:false});
+  });
+
+  // Fermer : bouton, clic en dehors du canvas, touche Échap
+  closeBtn.addEventListener('click', closeOverlay);
+  overlay.addEventListener('click', (e) => {
+    if(e.target === overlay) closeOverlay();
+  });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && overlay.classList.contains('open')) closeOverlay();
   });
 })();
 </script>
