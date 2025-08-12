@@ -122,7 +122,7 @@
         overflow: hidden;
         border-radius: 10px;
         background: #fff;
-        padding: 0;
+        padding: 1rem;
         margin-bottom: 2rem;
     }
     #mainCarouselSlides {
@@ -133,7 +133,7 @@
     .carousel-slide {
         min-width: 100%;
         box-sizing: border-box;
-        padding: 0;
+        padding: 0 1rem;
         user-select: none;
     }
 	.carousel-arrows {
@@ -158,6 +158,20 @@
 	.carousel-arrows button:hover {
 		transform: scale(1.2);
 	}
+
+
+/* Mode plein écran pour les graphiques */
+canvas.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: white;
+  z-index: 9999;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 
 </style>
 </head>
@@ -559,6 +573,22 @@ const chartDrift = new Chart(ctxDrift, {
         }
     }
 });
+
+// --- Plein écran au clic/tap pour tous les graphiques ---
+(function(){
+  function toggleFullscreen(e){
+    e.preventDefault();
+    e.stopPropagation();
+    const c = e.currentTarget;
+    c.classList.toggle('fullscreen');
+  }
+
+  // Sélectionner tous les canvas chart.js
+  const canvases = document.querySelectorAll('canvas');
+  canvases.forEach((c) => {
+    c.addEventListener('pointerdown', toggleFullscreen, {passive:false});
+  });
+})();
 </script>
 </body>
 </html>
