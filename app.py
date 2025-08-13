@@ -106,6 +106,43 @@ def upload_json_content_to_drive(json_data, drive_file_name):
         
 def save_short_term_objectives(data):
     upload_json_content_to_drive(data, 'short_term_objectives.json')
+    
+# -------------------
+# Détection du type de séance (règles simples par distance)
+# -------------------
+def detect_session_type(activity):
+    """
+    Règles:
+    - long_run si distance > 11 km
+    - normal_5k si distance < 8 km
+    - normal_10k sinon
+    """
+    points = activity.get("points", [])
+    if not points:
+        return activity.get("type_sortie", "inconnue") or "inconnue"
+
+    dist_km = points[-1]["distance"] / 1000.0
+
+    if dist_km > 11:
+        return "long_run"
+    if dist_km < 8:
+        return "normal_5k"
+    return "normal_10k"
+    
+    
+def tag_session_types(activities):
+    changed = False
+    for act in activities:
+        cur = act.get("type_sortie")
+        if cur in (None, "-", "inconnue") or act.get("force_recompute", False):
+            new_type = detect_session_type(act)
+            if new_type != cur:
+                act["type_sortie"] = new_type
+                changed = True
+        act.pop("force_recompute", None)
+    return activities, changed
+
+
 
 
 print("✅ Helpers OK")
@@ -363,37 +400,20 @@ def enrich_single_activity(activity, fc_max_fractionnes):
 def enrich_activities(activities):
     fc_max_fractionnes = get_fcmax_from_fractionnes(activities)
     print(f"📈 FC max fractionnés: {fc_max_fractionnes}")
+
     for idx, activity in enumerate(activities):
-        points = activity.get("points", [])
-        force = activity.get("force_recompute", False)
-        if not force and activity.get("type_sortie") not in [None, "-", "inconnue"]:
-            continue
-        pace_series, next_distance, last_idx = [], 100, 0
-        for i, p in enumerate(points):
-            if p["distance"] >= next_distance or i == len(points)-1:
-                delta_dist = p["distance"] - points[last_idx]["distance"]
-                delta_time = p["time"] - points[last_idx]["time"]
-                if delta_dist > 0:
-                    pace_series.append(round((delta_time / 60) / (delta_dist / 1000), 2))
-                next_distance += 100
-                last_idx = i
-        prompt_template = load_file_from_drive("prompt_type.txt") or ""
-        prompt = prompt_template.replace("{pace_series}", str(pace_series))
-        upload_json_content_to_drive({"prompt": prompt}, "prompt_type_debug.json")
-        try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            detected_type = response.choices[0].message.content.strip().lower()
-        except Exception as e:
-            print("Erreur GPT:", e)
-            detected_type = "inconnue"
-        activity["type_sortie"] = detected_type
+        # 1) Assigner le type de séance si manquant/forcé (règles simples par distance)
+        if activity.get("type_sortie") in (None, "-", "inconnue") or activity.get("force_recompute", False):
+            activity["type_sortie"] = detect_session_type(activity)
+
+        # 2) Enrichissements numériques (k, dérive cardio, etc.)
         activity = enrich_single_activity(activity, fc_max_fractionnes)
-        print(f"🏃 Act#{idx+1} ➔ type: {activity['type_sortie']}, k_moy: {activity.get('k_moy')}")
+
+        print(f"🏃 Act#{idx+1} ➔ type: {activity.get('type_sortie')}, k_moy: {activity.get('k_moy')}")
         activity.pop("force_recompute", None)
+
     return activities
+
 
 def allure_mmss_to_decimal(mmss):
     try:
@@ -583,12 +603,21 @@ def index():
         act.get("k_moy") in (None, "-") or act.get("deriv_cardio") in (None, "-")
         for act in activities
     )
+    needs_session = any(
+    act.get("type_sortie") in (None, "-", "inconnue") for act in activities
+    )
+
 
     modified = False
     if needs_weather:
         print("🌤️ Météo manquante → calcul météo")
         activities = ensure_weather_data(activities)
         modified = True
+    
+    if needs_session:
+        print("🏷️ Session type manquant → tagging par règles")
+        activities, changed = tag_session_types(activities)
+        modified = modified or changed
 
     if needs_enrich:
         print("📈 Enrichissement manquant → enrichissement")
@@ -763,6 +792,21 @@ def generate_short_term_plan():
     except Exception as e:
         print("❌ Erreur génération coaching court terme:", e)
         return f"Erreur génération coaching: {e}", 500
+        
+@app.route("/recompute_session_types")
+def recompute_session_types():
+    """Recalcule le type_sortie de toutes les activités avec la règle par distance."""
+    activities = load_activities()
+    print(f"♻️ Recalcul session_type pour {len(activities)} activités")
+
+    for act in activities:
+        # Toujours recalculer, même si déjà défini
+        act["type_sortie"] = detect_session_type(act)
+
+    upload_json_content_to_drive(activities, "activities.json")
+    print("✅ activities.json mis à jour avec nouveaux session_type")
+    return f"✅ Recalculé pour {len(activities)} activités"
+
 
 if __name__ == "__main__":
     app.run(debug=True)
