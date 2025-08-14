@@ -12,6 +12,10 @@ from dotenv import load_dotenv
 import numpy as np
 import requests
 import time
+from xgboost import XGBClassifier
+import pickle
+import pandas as pd
+import subprocess
 
 
 # -------------------
@@ -112,22 +116,105 @@ def save_short_term_objectives(data):
 # -------------------
 def detect_session_type(activity):
     """
-    Règles:
-    - long_run si distance > 11 km
-    - normal_5k si distance < 8 km
-    - normal_10k sinon
+    Règles par distance (aucune substitution par XGBoost ici) :
+    - > 11 km  -> long_run
+    - < 8 km   -> normal_5k
+    - sinon    -> normal_10k
     """
-    points = activity.get("points", [])
-    if not points:
+    pts = activity.get("points", [])
+    if not pts:
         return activity.get("type_sortie", "inconnue") or "inconnue"
 
-    dist_km = points[-1]["distance"] / 1000.0
+    dist_km = pts[-1]["distance"] / 1000.0
 
     if dist_km > 11:
         return "long_run"
     if dist_km < 8:
         return "normal_5k"
     return "normal_10k"
+
+    
+def _features_fractionne(activity):
+    """Vecteur de 4 features simples pour XGBoost: [cv_allure, cv_fc, blocs_rapides, pct_temps_90].
+    - blocs_rapides détectés avec une fenêtre glissante en distance (offset libre)
+    """
+    pts = activity.get("points", [])
+    if len(pts) < 10:
+        return [0.0, 0.0, 0.0, 0.0]
+
+    fcs = np.array([p.get("hr") for p in pts], dtype=float)
+    vels = np.array([p.get("vel") for p in pts], dtype=float)
+    dists = np.array([p.get("distance") for p in pts], dtype=float)
+
+    # Allures en min/km (nan si vel <= 0)
+    allures = np.where(vels > 0, (1.0 / vels) * 16.6667, np.nan)
+
+    # 1) CV allure & 2) CV FC
+    def _cv(x):
+        m = np.nanmean(x)
+        if not np.isfinite(m) or m == 0:
+            return 0.0
+        return float(np.nanstd(x) / m)
+
+    cv_allure = _cv(allures)
+    cv_fc = _cv(fcs)
+
+    # 3) Nombre de blocs rapides détectés via fenêtre glissante
+    WINDOW_M   = 500     # longueur de la fenêtre en mètres
+    FAST_DELTA = 0.40    # seuil de rapidité (min/km plus rapide que la moyenne)
+    COOLDOWN_M = 200     # distance minimale entre deux détections pour éviter les doublons
+
+    mean_all = np.nanmean(allures)
+    thr_fast = mean_all - FAST_DELTA if np.isfinite(mean_all) else np.nan
+
+    blocs_rapides = 0
+    i = 0
+    N = len(dists)
+    last_hit_end_d = -1e9  # distance fin du dernier bloc validé
+
+    while i < N - 1:
+        # trouve j tel que distance(i → j) >= WINDOW_M
+        j = i
+        while j < N and (dists[j] - dists[i]) < WINDOW_M:
+            j += 1
+        if j >= N:
+            break
+
+        bloc_all = np.nanmean(allures[i:j+1])
+        dist_i, dist_j = dists[i], dists[j]
+
+        # Critère rapide + cooldown respecté
+        is_fast = (np.isfinite(bloc_all) and np.isfinite(thr_fast) and bloc_all < thr_fast)
+        far_enough = (dist_i - last_hit_end_d) >= COOLDOWN_M
+
+        if is_fast and far_enough:
+            blocs_rapides += 1
+            last_hit_end_d = dist_j
+            # saute à la fin du bloc + cooldown
+            i = j
+            while i < N and (dists[i] - last_hit_end_d) < COOLDOWN_M:
+                i += 1
+            continue
+
+        # sinon avance juste d'un point
+        i += 1
+
+    # 4) % temps au-dessus de 90% FCmax de la séance
+    if np.all(np.isnan(fcs)) or len(fcs) == 0:
+        pct_90 = 0.0
+    else:
+        fcmax = np.nanmax(fcs)
+        thr = 0.9 * fcmax if np.isfinite(fcmax) and fcmax > 0 else np.nan
+        if np.isfinite(thr):
+            pct_90 = float(np.nansum(fcs > thr) / np.count_nonzero(~np.isnan(fcs)))
+        else:
+            pct_90 = 0.0
+
+    feats = [cv_allure, cv_fc, float(blocs_rapides), pct_90]
+    # Remplace NaN/±inf par 0 pour le modèle
+    feats = [0.0 if (not np.isfinite(v)) else float(v) for v in feats]
+    return feats
+
     
     
 def tag_session_types(activities):
@@ -141,11 +228,138 @@ def tag_session_types(activities):
                 changed = True
         act.pop("force_recompute", None)
     return activities, changed
+def apply_fractionne_flags(activities):
+    """
+    Ajoute/actualise :
+      - is_fractionne: bool
+      - fractionne_prob: float [0..1]
+    Sans jamais modifier type_sortie.
+    Règle: on évalue XGB seulement si distance <= 11 km ; sinon is_fractionne=False.
+    PRIORITÉ aux labels manuels (is_fractionne_label) s'ils sont présents.
+    """
+    changed = False
+    for act in activities:
+        # 1) Priorité au label manuel
+        if "is_fractionne_label" in act:
+            lbl = bool(act["is_fractionne_label"])
+            new_flag = lbl
+            new_prob = 1.0 if lbl else 0.0
+
+        else:
+            # 2) Sinon, on calcule avec le modèle si possible
+            pts = act.get("points", [])
+            if not pts:
+                new_flag, new_prob = False, 0.0
+            else:
+                dist_km = pts[-1].get("distance", 0) / 1000.0
+                if dist_km > 11 or fractionne_model is None:
+                    new_flag, new_prob = False, 0.0
+                else:
+                    feats = _features_fractionne(act)
+                    try:
+                        proba = float(fractionne_model.predict_proba(np.array([feats]))[0][1])
+                        new_prob = round(proba, 3)
+                        new_flag = (proba >= 0.5)  # seuil ajustable
+                    except Exception as e:
+                        print("🤖 XGBoost predict error:", e)
+                        new_flag, new_prob = False, 0.0
+
+        # 3) Appliquer si changement
+        if act.get("is_fractionne") != new_flag or act.get("fractionne_prob") != new_prob:
+            act["is_fractionne"] = new_flag
+            act["fractionne_prob"] = new_prob
+            changed = True
+
+    return activities, changed
 
 
 
 
 print("✅ Helpers OK")
+
+
+# -------- XGBoost fractionné (chargement modèle) --------
+MODEL_PATH = "fractionne_xgb.pkl"
+fractionne_model = None  # global lecture seule
+
+# ==== Auto-réentrainement XGBoost ====
+AUTO_RETRAIN_XGB = True                 # désactive en mettant False si besoin
+LAST_TRAIN_META = "ml/.last_train_meta.json"  # fichier local pour mémoriser le dernier état (compte d’activités)
+
+def _load_last_train_meta():
+    try:
+        with open(LAST_TRAIN_META, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"last_trained_count": 0}
+
+def _save_last_train_meta(count):
+    os.makedirs(os.path.dirname(LAST_TRAIN_META), exist_ok=True)
+    with open(LAST_TRAIN_META, "w", encoding="utf-8") as f:
+        json.dump({"last_trained_count": int(count)}, f)
+
+def _count_manual_labels(activities):
+    pos = neg = 0
+    for a in activities:
+        if "is_fractionne_label" in a:
+            if bool(a["is_fractionne_label"]): pos += 1
+            else: neg += 1
+    return pos, neg
+
+def _should_retrain_xgb(activities):
+    """
+    Vrai si:
+      - on a au moins 8 fractionnés (pos) ET 8 non-fractionnés (neg), ET
+      - au moins 1 nouvelle activité depuis le dernier entraînement.
+    """
+    meta = _load_last_train_meta()
+    last_cnt = meta.get("last_trained_count", 0)
+    cur_cnt = len(activities)
+    if cur_cnt <= last_cnt:
+        return False
+
+    pos, neg = _count_manual_labels(activities)
+    if pos < 8 or neg < 8:
+        print(f"ℹ️ Pas assez de labels pour auto-train (pos={pos}, neg={neg}, min=8 chacun)")
+        return False
+
+    print(f"🔁 Auto-train éligible: new_activities={cur_cnt - last_cnt}, labels(pos={pos}, neg={neg})")
+    return True
+
+def _retrain_fractionne_model_and_reload():
+    """
+    Lance ml/train_fractionne_xgb.py, recharge le modèle, mémorise le nb d'activités.
+    """
+    try:
+        print("🤖 Auto-train: lancement ml/train_fractionne_xgb.py ...")
+        subprocess.run(["python", "ml/train_fractionne_xgb.py"], check=True, timeout=300)
+        # Recharge le modèle
+        global fractionne_model
+        fractionne_model = load_fractionne_model()
+        # Mémorise le nouveau compteur
+        activities = load_activities()
+        _save_last_train_meta(len(activities))
+        print("✅ Auto-train OK et modèle rechargé.")
+        return True
+    except Exception as e:
+        print("❌ Auto-train échoué:", e)
+        return False
+
+
+def load_fractionne_model(path=MODEL_PATH):
+    try:
+        with open(path, "rb") as f:
+            model = pickle.load(f)
+        print(f"🤖 XGBoost fractionné chargé: {path}")
+        return model
+    except FileNotFoundError:
+        print("🤖 XGBoost fractionné introuvable → désactivé (pas de fichier .pkl).")
+    except Exception as e:
+        print("🤖 Erreur chargement XGBoost:", e)
+    return None
+
+# Charge à l'init
+fractionne_model = load_fractionne_model()
 
 # -------------------
 # Fonction météo (Open-Meteo)
@@ -328,7 +542,7 @@ def load_short_term_objectives(): return load_file_from_drive('short_term_object
 def get_fcmax_from_fractionnes(activities):
     fcmax = 0
     for act in activities:
-        if act.get("type_sortie") == "fractionné":
+        if act.get("type_sortie") == "fractionné" or act.get("is_fractionne") is True:
             for point in act.get("points", []):
                 hr = point.get("hr")
                 if hr is not None and hr > fcmax:
@@ -370,7 +584,7 @@ def enrich_single_activity(activity, fc_max_fractionnes):
     seuil_90 = 0.9 * fc_max_fractionnes
     above_90_count = sum(1 for hr in fcs if hr > seuil_90)
     time_above_90 = (above_90_count / len(fcs)) * total_duration if len(fcs) else 0
-    split = len(allures_corrigees)//3
+    split = max(1, len(allures_corrigees)//3)
     endurance_index = np.mean(allures_corrigees[-split:]) / np.mean(allures_corrigees[:split])
     fc_moy, allure_moy = np.mean(fcs), np.mean(allures_corrigees)
     k_moy = 0.43 * (fc_moy / allure_moy) - 5.19 if allure_moy > 0 else "-"
@@ -618,6 +832,15 @@ def index():
         print("🏷️ Session type manquant → tagging par règles")
         activities, changed = tag_session_types(activities)
         modified = modified or changed
+        
+        # Auto-réentrainement XGB si nouvelle activité + labels suffisants
+    if AUTO_RETRAIN_XGB and _should_retrain_xgb(activities):
+        _retrain_fractionne_model_and_reload()
+
+        
+    print("🤖 Marquage fractionné (is_fractionne / fractionne_prob)")
+    activities, changed = apply_fractionne_flags(activities)
+    modified = modified or changed
 
     if needs_enrich:
         print("📈 Enrichissement manquant → enrichissement")
@@ -694,6 +917,8 @@ def index():
         activities_for_carousel.append({
             "date": date_formatted,
             "type_sortie": act.get("type_sortie", "-"),
+            "is_fractionne": act.get("is_fractionne", False),
+            "fractionne_prob": act.get("fractionne_prob", 0.0), 
             "distance_km": round(total_dist_km, 2),
             "duration_min": round(total_time_min, 1),
             "fc_moy": round(np.mean(points_fc), 1) if points_fc else "-",
@@ -806,6 +1031,86 @@ def recompute_session_types():
     upload_json_content_to_drive(activities, "activities.json")
     print("✅ activities.json mis à jour avec nouveaux session_type")
     return f"✅ Recalculé pour {len(activities)} activités"
+    
+@app.route("/recompute_fractionne_flags")
+def recompute_fractionne_flags():
+    activities = load_activities()
+    activities, changed = apply_fractionne_flags(activities)
+    if changed:
+        upload_json_content_to_drive(activities, "activities.json")
+        msg = f"✅ Flags fractionné mis à jour ({len(activities)} activités)"
+    else:
+        msg = "ℹ️ Aucun changement sur les flags fractionné"
+    print(msg)
+    return msg
+    
+@app.route("/export_fractionne_excel")
+def export_fractionne_excel():
+    activities = load_activities()
+    rows = []
+    for a in activities:
+        aid = a.get("activity_id")
+        label = a.get("is_fractionne_label", "")
+        rows.append({"activity_id": aid, "fractionne_label": label})
+    df = pd.DataFrame(rows)
+    excel_path = "fractionne_labels.xlsx"
+    df.to_excel(excel_path, index=False)
+    return f"✅ Fichier exporté : {excel_path}"
+
+@app.route("/import_fractionne_excel")
+def import_fractionne_excel():
+    import pandas as pd
+    excel_path = "fractionne_labels.xlsx"
+    df = pd.read_excel(excel_path)
+    label_map = dict(zip(df["activity_id"], df["fractionne_label"]))
+
+    activities = load_activities()
+    changed = 0
+    for a in activities:
+        aid = a.get("activity_id")
+        if aid in label_map and pd.notna(label_map[aid]):
+            new_val = bool(label_map[aid])
+            if a.get("is_fractionne_label") != new_val:
+                a["is_fractionne_label"] = new_val
+                changed += 1
+
+    if changed > 0:
+        upload_json_content_to_drive(activities, "activities.json")
+
+    return f"✅ {changed} activités mises à jour depuis Excel"
+    
+@app.route("/debug_autotrain_status")
+def debug_autotrain_status():
+    activities = load_activities()
+
+    # mêmes calculs que les helpers
+    meta = _load_last_train_meta()
+    last_cnt = meta.get("last_trained_count", 0)
+    cur_cnt = len(activities)
+
+    pos = neg = 0
+    for a in activities:
+        if "is_fractionne_label" in a:
+            if bool(a["is_fractionne_label"]): pos += 1
+            else: neg += 1
+
+    eligible = (cur_cnt > last_cnt) and (pos >= 8 and neg >= 8)
+
+    return (
+        f"AUTO_RETRAIN_XGB={AUTO_RETRAIN_XGB}<br>"
+        f"last_trained_count={last_cnt}<br>"
+        f"current_activities={cur_cnt}<br>"
+        f"new_activities={cur_cnt - last_cnt}<br>"
+        f"labels_pos={pos}, labels_neg={neg} (min 8/8)<br>"
+        f"eligible={eligible}"
+    )
+    
+@app.route("/force_autotrain_xgb")
+def force_autotrain_xgb():
+    ok = _retrain_fractionne_model_and_reload()
+    return "✅ Auto-train OK" if ok else "❌ Auto-train échoué", (200 if ok else 500)
+
+
 
 
 if __name__ == "__main__":

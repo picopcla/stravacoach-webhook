@@ -225,10 +225,17 @@
                             <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="StravaCoach">
                             StravaCoach
                         </h1>
-                        <div class="header-info">
-                            <p>Type : {{ act.type_sortie }}</p>
-                            <p>Date : {{ act.date }}</p>
-                        </div>
+			<div class="header-info">
+				<p>
+					Type : {{ act.type_sortie }}
+					{% if act.is_fractionne %}
+						— <span style="color:yellow;">Fractionné ✅ ({{ (act.fractionne_prob * 100)|round(1) }}%)</span>
+					{% else %}
+						— <span style="color:lightgray;">Non fractionné</span>
+					{% endif %}
+				</p>
+				<p>Date : {{ act.date }}</p>
+			</div>
                     </div>
                     <div class="header-right">
                         {% if act.temperature is not none %}

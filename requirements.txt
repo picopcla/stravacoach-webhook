@@ -10,3 +10,5 @@ openai
 scikit-learn
 matplotlib
 python-dotenv
+xgboost
+scipy
