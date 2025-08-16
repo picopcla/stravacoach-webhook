@@ -549,6 +549,16 @@ def get_fcmax_from_fractionnes(activities):
                     fcmax = hr
     return fcmax
 
+def _compute_denivele_pos(points):
+    """Dénivelé positif cumulé (D+) en mètres : somme des hausses d'altitude."""
+    if not points:
+        return 0.0
+    alts = np.array([p.get("alt", 0) for p in points], dtype=float)
+    delta = np.diff(alts, prepend=alts[0])
+    denivele = float(np.sum(delta[delta > 0]))
+    return round(denivele, 1)
+
+
 def enrich_single_activity(activity, fc_max_fractionnes):
     points = activity.get("points", [])
     if not points or len(points) < 5:
@@ -594,6 +604,8 @@ def enrich_single_activity(activity, fc_max_fractionnes):
     zone2_count = sum(1 for hr in fcs if seuil_bas < hr < seuil_haut)
     pourcentage_zone2 = (zone2_count / len(fcs)) * 100 if len(fcs) else 0
     ratio_fc_allure_global = np.mean(ratios)
+    gain_alt = _compute_denivele_pos(points)
+
 
     activity.update({
         "drift_slope": round(slope, 4),
@@ -606,7 +618,8 @@ def enrich_single_activity(activity, fc_max_fractionnes):
         "k_moy": round(k_moy, 3) if isinstance(k_moy, float) else "-",
         "deriv_cardio": round(deriv_cardio, 3) if isinstance(deriv_cardio, float) else "-",
         "pourcentage_zone2": round(pourcentage_zone2, 1),
-        "ratio_fc_allure_global": round(ratio_fc_allure_global, 3)
+        "ratio_fc_allure_global": round(ratio_fc_allure_global, 3),
+        "gain_alt": gain_alt,
     })
 
     return activity
@@ -777,7 +790,7 @@ def compute_dashboard_data(activities):
         "fc_max": max(hr_vals) if hr_vals else "-",
         "k_moy": last.get("k_moy", "-"),
         "deriv_cardio": last.get("deriv_cardio", "-"),
-        "gain_alt": round(points[-1]["alt"] - points[0]["alt"], 1),
+        "gain_alt": _compute_denivele_pos(points),
         "drift_slope": last.get("drift_slope", "-"),
         "cv_allure": last.get("cv_allure", "-"),
         "cv_cardio": last.get("cv_cardio", "-"),
@@ -892,7 +905,7 @@ def index():
         total_time_min = (points[-1]["time"] - points[0]["time"]) / 60
         allure_moy = total_time_min / total_dist_km if total_dist_km > 0 else None
         fc_max = max(points_fc) if points_fc else None
-        gain_alt = round(points[-1]["alt"] - points[0]["alt"], 1)
+        gain_alt = _compute_denivele_pos(points)
 
         # 🌡️ Météo
         avg_temperature = act.get("avg_temperature")
@@ -1109,6 +1122,24 @@ def debug_autotrain_status():
 def force_autotrain_xgb():
     ok = _retrain_fractionne_model_and_reload()
     return "✅ Auto-train OK" if ok else "❌ Auto-train échoué", (200 if ok else 500)
+    
+@app.route("/recompute_denivele")
+def recompute_denivele():
+    activities = load_activities()
+    changed = 0
+    for act in activities:
+        pts = act.get("points", [])
+        new_gain = _compute_denivele_pos(pts)
+        if act.get("gain_alt") != new_gain:
+            act["gain_alt"] = new_gain
+            changed += 1
+    if changed:
+        upload_json_content_to_drive(activities, "activities.json")
+        msg = f"✅ Dénivelé positif recalculé sur {changed} activité(s)"
+    else:
+        msg = "ℹ️ Aucun changement de dénivelé détecté"
+    print(msg)
+    return msg
 
 
 
