@@ -1,21 +1,96 @@
 import os
 import json
 import io
-from datetime import datetime, timedelta
+import time
+import pickle
+import subprocess
+from datetime import datetime, timedelta, date
+
+import numpy as np
+import pandas as pd
+import requests
 from dateutil import parser
 from flask import Flask, render_template, request, redirect
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from openai import OpenAI
 from dotenv import load_dotenv
-import numpy as np
-import requests
-import time
 from xgboost import XGBClassifier
-import pickle
-import pandas as pd
-import subprocess
+
+# --- Bootstrap ENV (loadkeys + .env + auto-map) ---
+try:
+    import loadkeys  # exécute la même init que `python loadkeys.py`
+    print("✅ loadkeys.py importé et exécuté")
+except Exception as e:
+    print("ℹ️ loadkeys.py non importé :", e)
+    loadkeys = None
+
+# Charger .env / main.env si présents
+for envfile in (".env", "main.env"):
+    try:
+        if load_dotenv(envfile, override=True):
+            print(f"✅ {envfile} chargé")
+    except Exception:
+        pass
+
+def _set_from_candidates(dst: str, candidates: list[str]):
+    """Si dst n'est pas déjà défini, tente de le récupérer depuis loadkeys ou d'autres noms d'env."""
+    if os.getenv(dst):
+        return
+    # 1) Attributs du module loadkeys (ex: DRIVE_FOLDER_ID, GOOGLE_CREDENTIALS_FILE, ...)
+    for k in candidates:
+        v = getattr(loadkeys, k, None) if loadkeys else None
+        if v:
+            os.environ[dst] = str(v)
+            print(f"↪ set {dst} from loadkeys.{k}")
+            return
+    # 2) Variables d'env existantes sous d'autres noms
+    for k in candidates:
+        v = os.getenv(k)
+        if v:
+            os.environ[dst] = v
+            print(f"↪ set {dst} from env:{k}")
+            return
+
+# Mapper vers les noms attendus par helpers/data_access.py
+_set_from_candidates("FOLDER_ID", [
+    "FOLDER_ID", "DRIVE_FOLDER_ID", "FOLDER", "FOLDERID"
+])
+_set_from_candidates("GOOGLE_APPLICATION_CREDENTIALS", [
+    "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CREDENTIALS_FILE",
+    "SERVICE_ACCOUNT_FILE", "SERVICE_ACCOUNT_PATH"
+])
+_set_from_candidates("GOOGLE_APPLICATION_CREDENTIALS_JSON", [
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON", "GOOGLE_JSON_CREDENTIALS",
+    "SERVICE_ACCOUNT_JSON"
+])
+
+# Dernier recours local : fichier de service account connu
+for candidate in ("C:/StravaSecurity/services.json", "./StravaSecurity/services.json"):
+    if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.path.exists(candidate):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = candidate
+        print(f"↪ set GOOGLE_APPLICATION_CREDENTIALS to {candidate}")
+        break
+
+# Activer logs Drive
+os.environ.setdefault("SC_DEBUG", "1")
+
+# Sanity logs
+print("ENV FOLDER_ID          =", os.getenv("FOLDER_ID"))
+print("ENV CREDS(json|path)   =", bool(
+    os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+))
+if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    print("ENV CREDS path exists  =", os.path.exists(os.getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+
+# --- Helpers Drive (après bootstrap ENV !) ---
+from helpers.data_access import (
+    DriveUnavailableError,
+    load_activities_from_drive, load_profile_from_drive,
+    save_activities_to_drive,
+    read_analysis, read_predictions, read_weekly_plan, read_benchmark,
+    write_analysis, write_predictions, write_weekly_plan, write_benchmark,
+    write_output_json,
+)
+
 
 
 # -------------------
@@ -40,77 +115,6 @@ if not openai_api_key:
 client = OpenAI(api_key=openai_api_key)
 print("✅ OpenAI client initialisé")
 
-# --- Init Google Drive ---
-try:
-    # Si Render, la variable est un JSON complet en string
-    service_account_info = json.loads(os.environ['GOOGLE_APPLICATION_CREDENTIALS_JSON'])
-except KeyError:
-    # Sinon, on lit le fichier local
-    with open(r'C:\StravaSecurity\services.json', 'r', encoding='utf-8') as f:
-        service_account_info = json.load(f)
-
-credentials = service_account.Credentials.from_service_account_info(
-    service_account_info,
-    scopes=['https://www.googleapis.com/auth/drive']
-)
-drive_service = build('drive', 'v3', credentials=credentials)
-print("✅ Google Drive service initialisé")
-
-# -------------------
-# Helpers Google Drive
-# ------------------
-def load_file_from_drive(filename):
-    try:
-        results = drive_service.files().list(
-            q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
-            spaces='drive', fields='files(id, name)').execute()
-        files = results.get('files', [])
-        if not files:
-            return {}
-        file_id = files[0]['id']
-        request_file = drive_service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request_file)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        fh.seek(0)
-        if filename.endswith('.json'):
-            return json.loads(fh.read().decode("utf-8", errors="replace"))
-        else:
-            return fh.read().decode("utf-8", errors="replace")
-    except Exception as e:
-        print(f"Erreur chargement {filename}:", e)
-        return {} if filename.endswith('.json') else ""
-
-def upload_json_content_to_drive(json_data, drive_file_name):
-    fh = io.BytesIO()
-    fh.write(json.dumps(json_data, indent=2).encode("utf-8"))
-    fh.seek(0)
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='{drive_file_name}' and trashed=false",
-        spaces='drive', fields='files(id, name)', supportsAllDrives=True
-    ).execute()
-    files = results.get('files', [])
-    media = MediaIoBaseUpload(fh, mimetype='application/json')
-    if files:
-        file_id = files[0]['id']
-        drive_service.files().update(
-            fileId=file_id, media_body=media, supportsAllDrives=True
-        ).execute()
-    else:
-        metadata = {
-            'name': drive_file_name,
-            'parents': [FOLDER_ID],
-            'mimeType': 'application/json'
-        }
-        drive_service.files().create(
-            body=metadata, media_body=media, fields='id', supportsAllDrives=True
-        ).execute()
-        
-def save_short_term_objectives(data):
-    upload_json_content_to_drive(data, 'short_term_objectives.json')
-    
 # -------------------
 # Détection du type de séance (règles simples par distance)
 # -------------------
@@ -337,7 +341,7 @@ def _retrain_fractionne_model_and_reload():
         global fractionne_model
         fractionne_model = load_fractionne_model()
         # Mémorise le nouveau compteur
-        activities = load_activities()
+        activities = load_activities_from_drive()
         _save_last_train_meta(len(activities))
         print("✅ Auto-train OK et modèle rechargé.")
         return True
@@ -364,11 +368,8 @@ fractionne_model = load_fractionne_model()
 # -------------------
 # Fonction météo (Open-Meteo)
 # -------------------
-from datetime import datetime, timedelta, date
-import requests
-from collections import Counter
 
-from dateutil import parser  # déjà importé
+from collections import Counter
 
 def get_temperature_for_run(lat, lon, start_datetime_str, duration_minutes):
     try:
@@ -520,21 +521,33 @@ def ensure_weather_data(activities):
             print(f"🌤️ Météo ajoutée pour {act.get('date')} ➜ {avg_temp}°C / code {weather_code}")
 
     if updated:
-        upload_json_content_to_drive(activities, 'activities.json')
+        save_activities_to_drive(activities)
         print("💾 activities.json mis à jour avec la météo")
 
     return activities
 
+# -------------------
+# Loaders (Drive-only via helpers.data_access)
+# -------------------
+def load_profile():
+    try:
+        return load_profile_from_drive()
+    except DriveUnavailableError:
+        return {"birth_date": "", "weight": 0, "events": []}
 
-# -------------------
-# Loaders
-# -------------------
-def load_activities(): return load_file_from_drive('activities.json') or []
-def load_profile(): return load_file_from_drive('profile.json') or {"birth_date": "", "weight": 0, "events": []}
-def load_objectives(): return load_file_from_drive('objectives.json') or {}
+def load_objectives():
+    # facultatif : si tu as un objectives.json sur Drive
+    from helpers.data_access import read_output_json
+    return read_output_json('objectives.json') or {}
+
 def load_short_term_prompt_from_drive():
-    return load_file_from_drive('prompt_short_term.txt') or "Donne directement le JSON des objectifs à court terme."
-def load_short_term_objectives(): return load_file_from_drive('short_term_objectives.json') or {}
+    # facultatif : si tu as un prompt_short_term.txt sur Drive
+    from helpers.data_access import read_output_json
+    return read_output_json('prompt_short_term.txt') or "Donne directement le JSON des objectifs à court terme."
+
+def load_short_term_objectives():
+    from helpers.data_access import read_output_json
+    return read_output_json('short_term_objectives.json') or {}
 
 # -------------------
 # Fonctions spécifiques (inchangées sauf enrich_activities etc)
@@ -661,131 +674,206 @@ def convert_short_term_allures(short_term):
 
 print("✅ Activities OK")
 
+def _empty_dashboard_payload():
+    # On renvoie des tableaux vides sérialisés en JSON, pour éviter
+    # les "const x = ;" côté JS si une clé manque.
+    return {
+        "labels": "[]",
+        "points_alt": "[]",
+        "points_fc": "[]",
+        "allure_curve": "[]",
+        "history_dates": "[]",
+        "history_k": "[]",
+        "history_drift": "[]",
+    }
+
+
+# --- Helper : payload vide mais JS valide (et clés attendues présentes) ---
+def _empty_dashboard_payload():
+    return {
+        "type_sortie": "-",
+        "date": "-",
+        "distance_km": 0,
+        "duration_min": 0,
+        "allure": "-",
+        "fc_moy": "-",
+        "fc_max": "-",
+        "k_moy": "-",
+        "deriv_cardio": "-",
+        "gain_alt": 0,
+        "drift_slope": "-",
+        "cv_allure": "-",
+        "cv_cardio": "-",
+        "collapse_distance_km": "-",
+        "pourcentage_zone2": "-",
+        "time_above_90_pct_fcmax": "-",
+        "ratio_fc_allure_global": "-",
+        "avg_temperature": None,
+        "temp_debut": None,
+        "temp_fin": None,
+        "temperature": None,
+        "weather_code": None,
+        "weather_emoji": "❓",
+        "labels": "[]",
+        "allure_curve": "[]",
+        "points_fc": "[]",
+        "points_alt": "[]",
+        "history_dates": "[]",
+        "history_k": "[]",
+        "history_drift": "[]",
+    }
+
+
 # -------------------
 # Dashboard principal
 # -------------------
 def compute_dashboard_data(activities):
+    print(f"➡ compute_dashboard_data: activities={len(activities) if activities else 0}")
+
     weather_code_map = {
-       0: "☀️",  # Clear sky
-       1: "🌤️",  # Mainly clear
-       2: "⛅",   # Partly cloudy
-       3: "☁️",  # Overcast
-       45: "🌫️", # Fog
-       48: "🌫️", # Depositing rime fog
-       51: "🌦️", # Drizzle light
-       53: "🌧️", # Drizzle moderate
-       55: "🌧️", # Drizzle dense
-       61: "🌧️", # Rain slight
-       63: "🌧️", # Rain moderate
-       65: "🌧️", # Rain heavy
-       71: "❄️",  # Snow fall slight
-       73: "❄️",  # Snow fall moderate
-       75: "❄️",  # Snow fall heavy
-       80: "🌧️", # Rain showers slight
-       81: "🌧️", # Rain showers moderate
-       82: "🌧️", # Rain showers violent
-       95: "⛈️",  # Thunderstorm slight
-       96: "⛈️",  # Thunderstorm with slight hail
-       99: "⛈️",  # Thunderstorm with heavy hail
+        0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
+        51: "🌦️", 53: "🌧️", 55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️",
+        71: "❄️", 73: "❄️", 75: "❄️", 77: "❄️", 80: "🌧️", 81: "🌧️", 82: "🌧️",
+        95: "⛈️", 96: "⛈️", 99: "⛈️"
     }
+
+    # 1) Pas d'activités -> payload vide mais JS valide
+    if not activities:
+        return _empty_dashboard_payload()
+
+    # 2) Prendre la plus récente activité QUI A DES POINTS (et ne plus l'écraser ensuite)
+    last = next((a for a in reversed(activities) if isinstance(a.get("points"), list) and a["points"]), None)
+    if last is None:
+        return _empty_dashboard_payload()
+
+    points = last["points"]
+    if not points:
+        return _empty_dashboard_payload()
 
     print("\n🔍 DEBUG --- Vérification température")
 
-    activities.sort(key=lambda x: x.get("date"))
-    last = activities[-1] if activities else {}
-
-    points = last.get("points", [])
-    if not points:
-        print("⚠️ Pas de points dans la dernière activité")
-        return {}
-
-    # Date
+    # --- Date
     date_str = "-"
     try:
         date_str = datetime.strptime(last.get("date"), "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d")
     except Exception as e:
         print("❌ Erreur parsing date:", e)
-        date_str = None
+        date_str = (last.get("date") or "-")[:10]
+
     print("📅 Date activité:", date_str)
 
-    # GPS
+    # --- Coordonnées (GPS)
     lat, lon = None, None
-    if points and "lat" in points[0] and "lng" in points[0]:
+    if "lat" in points[0] and "lng" in points[0]:
         lat, lon = points[0]["lat"], points[0]["lng"]
-    elif "start_latlng" in last and last["start_latlng"]:
-        lat, lon = last["start_latlng"][0], last["start_latlng"][1]
+    elif last.get("start_latlng"):
+        try:
+            lat, lon = last["start_latlng"][0], last["start_latlng"][1]
+        except Exception:
+            lat, lon = None, None
 
-   # Température : utiliser la météo déjà stockée si disponible
+    # --- Météo : utiliser si déjà stockée, sinon calcul + sauvegarde sur Drive
     avg_temperature = last.get("avg_temperature")
     weather_code = last.get("weather_code")
     temp_debut = avg_temperature
     temp_fin = avg_temperature
 
     if lat is not None and lon is not None and date_str:
-        # Si météo absente, on la calcule une seule fois et on la sauvegarde
         if avg_temperature is None or weather_code is None:
-            start_datetime_str = last.get("date")  # Ex: "2025-07-18T19:45:57Z"
+            start_datetime_str = last.get("date")  # "2025-07-18T19:45:57Z" par ex.
             duration_minutes = (points[-1]["time"] - points[0]["time"]) / 60 if points else 0
-
-            avg_temperature, temp_debut, temp_fin, weather_code = get_temperature_for_run(
-                lat, lon, start_datetime_str, duration_minutes
-            )
-
-            # Sauvegarde dans l'activité
-            last["avg_temperature"] = avg_temperature
-            last["weather_code"] = weather_code
-
-            # Met à jour activities.json pour éviter un recalcul futur
-            upload_json_content_to_drive(activities, 'activities.json')
-
-            print(f"🌡️ Température calculée et sauvegardée : {avg_temperature}°C")
+            try:
+                avg_temperature, temp_debut, temp_fin, weather_code = get_temperature_for_run(
+                    lat, lon, start_datetime_str, duration_minutes
+                )
+                # Sauvegarde dans l'activité
+                last["avg_temperature"] = avg_temperature
+                last["weather_code"] = weather_code
+                # Mise à jour du fichier Drive pour éviter un recalcul futur
+                save_activities_to_drive(activities)
+                print(f"🌡️ Température calculée et sauvegardée : {avg_temperature}°C")
+            except Exception as e:
+                print("⚠️ get_temperature_for_run a échoué :", e)
         else:
             print(f"🌡️ Température lue depuis activities.json : {avg_temperature}°C")
     else:
         print("⚠️ Impossible d’appeler météo: coordonnées ou date manquantes.")
 
-    # Si aucun code météo n’est disponible, on force un fallback
     if weather_code is None:
         weather_code = -1
-
-
     weather_emoji = weather_code_map.get(weather_code, "❓")
 
-    # Metrics
-    total_dist = points[-1]["distance"] / 1000
-    total_time = (points[-1]["time"] - points[0]["time"]) / 60
+    # --- Métriques globales
+    total_dist = points[-1]["distance"] / 1000.0
+    total_time = (points[-1]["time"] - points[0]["time"]) / 60.0
     allure_moy = total_time / total_dist if total_dist > 0 else None
-    hr_vals = [p["hr"] for p in points if p.get("hr")]
-    labels = [round(p["distance"] / 1000, 3) for p in points]
+
+    # Séquences point-par-point (longueurs alignées)
+    labels = [round(p.get("distance", 0) / 1000.0, 3) for p in points]
     if labels and labels[0] != 0:
         labels[0] = 0.0
-    points_fc = [p["hr"] for p in points if p.get("hr") is not None]
-    points_alt = [p["alt"] - points[0]["alt"] for p in points if p.get("alt") is not None]
 
-    # Allure curve
+    # FC & Alt : garder la même longueur que labels
+    points_fc = [p.get("hr") if p.get("hr") is not None else None for p in points]
+    base_alt = points[0].get("alt", 0) if points[0].get("alt") is not None else 0
+    points_alt = [(p.get("alt", base_alt) - base_alt) if p.get("alt") is not None else 0 for p in points]
+
+    # Allure "escaliers" tous les 500m (min/km)
     allure_curve = []
-    bloc_start_idx, next_bloc_dist, last_allure = 0, 500, None
+    bloc_start_idx, next_bloc_dist, last_allure = 0, 500.0, None
     for i, p in enumerate(points):
-        if p["distance"] >= next_bloc_dist or i == len(points) - 1:
+        dist = p.get("distance", 0.0)
+        if dist >= next_bloc_dist or i == len(points) - 1:
             bloc_points = points[bloc_start_idx:i + 1]
-            bloc_dist = bloc_points[-1]["distance"] - bloc_points[0]["distance"]
-            bloc_time = bloc_points[-1]["time"] - bloc_points[0]["time"]
-            if bloc_dist > 0:
-                last_allure = (bloc_time / 60) / (bloc_dist / 1000)
+            if bloc_points:
+                d = bloc_points[-1].get("distance", 0) - bloc_points[0].get("distance", 0)
+                t = bloc_points[-1].get("time", 0) - bloc_points[0].get("time", 0)
+                if d > 0:
+                    last_allure = (t / 60.0) / (d / 1000.0)
             allure_curve.extend([last_allure] * len(bloc_points))
             bloc_start_idx = i + 1
-            next_bloc_dist += 500
-    while len(allure_curve) < len(points):
-        allure_curve.append(last_allure)
+            next_bloc_dist += 500.0
+    if len(allure_curve) < len(points):
+        allure_curve.extend([last_allure] * (len(points) - len(allure_curve)))
+
+    # FC moy / max sur la séance (ignore None)
+    hr_vals = [h for h in points_fc if isinstance(h, (int, float))]
+
+    # Historique k / dérive cardiaque (uniquement si numériques)
+    history_dates, history_k, history_drift = [], [], []
+    for act in activities:
+        k = act.get("k_moy")
+        d = act.get("deriv_cardio")
+        if not isinstance(k, (int, float)) or not isinstance(d, (int, float)):
+            continue
+        dt = act.get("date") or "-"
+        try:
+            ds = datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S%z").strftime("%Y-%m-%d")
+        except Exception:
+            ds = dt[:10] if isinstance(dt, str) else "-"
+        history_dates.append(ds)
+        history_k.append(k)
+        history_drift.append(d)
+
+    # Limiter la taille de l'historique (esthétique)
+    MAXH = 50
+    if len(history_dates) > MAXH:
+        history_dates  = history_dates[-MAXH:]
+        history_k      = history_k[-MAXH:]
+        history_drift  = history_drift[-MAXH:]
 
     print("📊 Dashboard calculé")
 
+    # --- Retour : objets simples + séries JSON (pour |safe dans le template)
     return {
         "type_sortie": last.get("type_sortie", "-"),
         "date": date_str,
         "distance_km": round(total_dist, 2),
         "duration_min": round(total_time, 1),
-        "allure": f"{int(allure_moy)}:{int((allure_moy - int(allure_moy)) * 60):02d}" if allure_moy else "-",
+        "allure": (
+            f"{int(allure_moy)}:{int((allure_moy - int(allure_moy)) * 60):02d}"
+            if isinstance(allure_moy, (int, float)) and allure_moy > 0 else "-"
+        ),
         "fc_moy": round(sum(hr_vals) / len(hr_vals), 1) if hr_vals else "-",
         "fc_max": max(hr_vals) if hr_vals else "-",
         "k_moy": last.get("k_moy", "-"),
@@ -801,25 +889,41 @@ def compute_dashboard_data(activities):
         "avg_temperature": avg_temperature,
         "temp_debut": temp_debut,
         "temp_fin": temp_fin,
-        "labels": json.dumps(labels),
-        "allure_curve": json.dumps(allure_curve),
-        "points_fc": json.dumps(points_fc),
-        "points_alt": json.dumps(points_alt),
-        "history_dates": json.dumps([a["date"][:10] for a in activities if a.get("k_moy") != "-"]),
-        "history_k": json.dumps([a["k_moy"] for a in activities if a.get("k_moy") != "-"]),
         "temperature": avg_temperature,
         "weather_code": weather_code,
         "weather_emoji": weather_emoji,
-        "history_drift": json.dumps([a["deriv_cardio"] for a in activities if a.get("deriv_cardio") != "-"]),
+
+        # Séries pour les graphiques (JSON strings)
+        "labels": json.dumps(labels, ensure_ascii=False),
+        "allure_curve": json.dumps(allure_curve, ensure_ascii=False),
+        "points_fc": json.dumps(points_fc, ensure_ascii=False),
+        "points_alt": json.dumps(points_alt, ensure_ascii=False),
+        "history_dates": json.dumps(history_dates, ensure_ascii=False),
+        "history_k": json.dumps(history_k, ensure_ascii=False),
+        "history_drift": json.dumps(history_drift, ensure_ascii=False),
     }
+
 
 @app.route("/")
 def index():
     start_time = time.time()
     log_step("Début index()", start_time)
+    print("➡ index(): start")
 
-    # Charger les activités
-    activities = load_activities()
+    # --- Drive-only guard ---
+    try:
+        activities = load_activities_from_drive()
+        print(f"➡ activities loaded: {len(activities)}")
+    except DriveUnavailableError as e:
+        print("❌ load_activities_from_drive failed:", e)
+        return render_template(
+            "index.html",
+            dashboard={},
+            objectives={},
+            short_term={},
+            activities_for_carousel=[],
+            drive_error=f"⚠️ Données indisponibles (Drive) : {e}",
+        )
 
     # Vérifier si certaines activités sont incomplètes
     needs_weather = any(
@@ -831,26 +935,24 @@ def index():
         for act in activities
     )
     needs_session = any(
-    act.get("type_sortie") in (None, "-", "inconnue") for act in activities
+        act.get("type_sortie") in (None, "-", "inconnue") for act in activities
     )
-
 
     modified = False
     if needs_weather:
         print("🌤️ Météo manquante → calcul météo")
         activities = ensure_weather_data(activities)
         modified = True
-    
+
     if needs_session:
         print("🏷️ Session type manquant → tagging par règles")
         activities, changed = tag_session_types(activities)
         modified = modified or changed
-        
-        # Auto-réentrainement XGB si nouvelle activité + labels suffisants
+
+    # Auto-réentrainement XGB si nouvelle activité + labels suffisants
     if AUTO_RETRAIN_XGB and _should_retrain_xgb(activities):
         _retrain_fractionne_model_and_reload()
 
-        
     print("🤖 Marquage fractionné (is_fractionne / fractionne_prob)")
     activities, changed = apply_fractionne_flags(activities)
     modified = modified or changed
@@ -861,7 +963,7 @@ def index():
         modified = True
 
     if modified:
-        upload_json_content_to_drive(activities, 'activities.json')
+        save_activities_to_drive(activities)
         print("💾 activities.json mis à jour après complétion")
 
     log_step("Activities chargées et complétées", start_time)
@@ -871,13 +973,16 @@ def index():
     dashboard = compute_dashboard_data(activities)
     log_step("Dashboard calculé", start_time)
 
+    # Construction du carrousel
     activities_for_carousel = []
-
-    # Construction du carrousel (inchangé)
+    print("➡ building carousel from last", min(10, len(activities)), "activities")
     for act in reversed(activities[-10:]):  # 10 dernières activités
         log_step(f"Début carrousel activité {act.get('date')}", start_time)
+        print("   slide candidate:", act.get('date'))
         points = act.get("points", [])
+        print("   -> points:", len(points))
         if not points:
+            print("   -> skipped (no points)")
             continue
 
         labels = [round(p["distance"] / 1000, 3) for p in points]
@@ -924,14 +1029,14 @@ def index():
             date_formatted = datetime.strptime(
                 act.get("date"), "%Y-%m-%dT%H:%M:%S%z"
             ).strftime("%Y-%m-%d")
-        except:
+        except Exception:
             date_formatted = "-"
 
         activities_for_carousel.append({
             "date": date_formatted,
             "type_sortie": act.get("type_sortie", "-"),
             "is_fractionne": act.get("is_fractionne", False),
-            "fractionne_prob": act.get("fractionne_prob", 0.0), 
+            "fractionne_prob": act.get("fractionne_prob", 0.0),
             "distance_km": round(total_dist_km, 2),
             "duration_min": round(total_time_min, 1),
             "fc_moy": round(np.mean(points_fc), 1) if points_fc else "-",
@@ -948,7 +1053,7 @@ def index():
             "allure_curve": json.dumps(allure_curve),
         })
 
-    # Retourne la page
+    print("➡ activities_for_carousel count:", len(activities_for_carousel))
     return render_template(
         "index.html",
         dashboard=dashboard,
@@ -957,48 +1062,72 @@ def index():
         activities_for_carousel=activities_for_carousel
     )
 
+
     
 @app.route("/refresh")
 def refresh():
     """Recalcule et met à jour activities.json sur Drive"""
     print("♻️ Recalcul des activités...")
-    activities = load_activities()
-    activities = enrich_activities(activities)
-    upload_json_content_to_drive(activities, 'activities.json')
-    print("✅ activities.json mis à jour sur Drive")
-    return "✅ Données mises à jour"
-      
-@app.route('/profile', methods=['GET','POST'])
-def profile():
-    profile = load_profile()
-    if request.method == 'POST':
-        profile['birth_date'] = request.form.get('birth_date', '')
-        weight = request.form.get('weight', '')
-        profile['weight'] = float(weight) if weight else 0.0
-        profile['global_objective'] = request.form.get('global_objective', '')
-        profile['particular_objective'] = request.form.get('particular_objective', '')
+    try:
+        # 1) Lire depuis Drive
+        activities = load_activities_from_drive()
 
-        # Récupérer listes des événements : dates et noms
+        # 2) Enrichir (ta fonction existante)
+        activities = enrich_activities(activities)
+
+        # 3) Écrire sur Drive
+        save_activities_to_drive(activities)
+
+        print("✅ activities.json mis à jour sur Drive")
+        return "✅ Données mises à jour", 200
+
+    except DriveUnavailableError as e:
+        print(f"❌ Drive indisponible: {e}")
+        return f"❌ Données non mises à jour (Drive): {e}", 503
+
+    except Exception as e:
+        print(f"❌ Erreur refresh: {e}")
+        return f"❌ Erreur interne: {e}", 500
+
+@app.route('/profile', methods=['GET', 'POST'])
+def profile():
+    # --- Drive-only guard ---
+    try:
+        prof = load_profile_from_drive()
+    except DriveUnavailableError as e:
+        return render_template(
+            "profile.html",
+            profile={},
+            drive_error=f"⚠️ Données indisponibles (Drive) : {e}",
+        )
+
+    if request.method == 'POST':
+        prof['birth_date'] = request.form.get('birth_date', '')
+        weight = request.form.get('weight', '')
+        prof['weight'] = float(weight) if weight else 0.0
+        prof['global_objective'] = request.form.get('global_objective', '')
+        prof['particular_objective'] = request.form.get('particular_objective', '')
+
+        # Événements (dates + noms)
         event_dates = request.form.getlist('event_date')
         event_names = request.form.getlist('event_name')
-
         events = []
         for d, n in zip(event_dates, event_names):
-            d = d.strip()
-            n = n.strip()
+            d, n = d.strip(), n.strip()
             if d and n:
                 events.append({'date': d, 'name': n})
-        profile['events'] = events
+        prof['events'] = events
 
-        upload_json_content_to_drive(profile, 'profile.json')
+        write_output_json('profile.json', prof)
         return redirect('/profile')
 
-    return render_template('profile.html', profile=profile)
+    return render_template('profile.html', profile=prof)
+
     
 @app.route('/generate_short_term_plan')
 def generate_short_term_plan():
     profile = load_profile()
-    activities = load_activities()
+    activities = load_activities_from_drive()
     prompt_template = load_short_term_prompt_from_drive()
 
     # Exemple simple pour construire prompt
@@ -1021,7 +1150,7 @@ def generate_short_term_plan():
         # Ajouter conversion allures au format décimal si besoin
         short_term_objectives = convert_short_term_allures(short_term_objectives)
 
-        save_short_term_objectives(short_term_objectives)
+        write_output_json('short_term_objectives.json', short_term_objectives)
 
         print("✅ Coaching court terme généré et sauvegardé.")
 
@@ -1034,23 +1163,23 @@ def generate_short_term_plan():
 @app.route("/recompute_session_types")
 def recompute_session_types():
     """Recalcule le type_sortie de toutes les activités avec la règle par distance."""
-    activities = load_activities()
+    activities = load_activities_from_drive()
     print(f"♻️ Recalcul session_type pour {len(activities)} activités")
 
     for act in activities:
         # Toujours recalculer, même si déjà défini
         act["type_sortie"] = detect_session_type(act)
 
-    upload_json_content_to_drive(activities, "activities.json")
+    save_activities_to_drive(activities)
     print("✅ activities.json mis à jour avec nouveaux session_type")
     return f"✅ Recalculé pour {len(activities)} activités"
     
 @app.route("/recompute_fractionne_flags")
 def recompute_fractionne_flags():
-    activities = load_activities()
+    activities = load_activities_from_drive()
     activities, changed = apply_fractionne_flags(activities)
     if changed:
-        upload_json_content_to_drive(activities, "activities.json")
+        save_activities_to_drive(activities)
         msg = f"✅ Flags fractionné mis à jour ({len(activities)} activités)"
     else:
         msg = "ℹ️ Aucun changement sur les flags fractionné"
@@ -1059,7 +1188,7 @@ def recompute_fractionne_flags():
     
 @app.route("/export_fractionne_excel")
 def export_fractionne_excel():
-    activities = load_activities()
+    activities = load_activities_from_drive()
     rows = []
     for a in activities:
         aid = a.get("activity_id")
@@ -1077,7 +1206,7 @@ def import_fractionne_excel():
     df = pd.read_excel(excel_path)
     label_map = dict(zip(df["activity_id"], df["fractionne_label"]))
 
-    activities = load_activities()
+    activities = load_activities_from_drive()
     changed = 0
     for a in activities:
         aid = a.get("activity_id")
@@ -1088,13 +1217,13 @@ def import_fractionne_excel():
                 changed += 1
 
     if changed > 0:
-        upload_json_content_to_drive(activities, "activities.json")
+        save_activities_to_drive(activities)
 
     return f"✅ {changed} activités mises à jour depuis Excel"
     
 @app.route("/debug_autotrain_status")
 def debug_autotrain_status():
-    activities = load_activities()
+    activities = load_activities_from_drive()
 
     # mêmes calculs que les helpers
     meta = _load_last_train_meta()
@@ -1125,7 +1254,7 @@ def force_autotrain_xgb():
     
 @app.route("/recompute_denivele")
 def recompute_denivele():
-    activities = load_activities()
+    activities = load_activities_from_drive()
     changed = 0
     for act in activities:
         pts = act.get("points", [])
@@ -1134,7 +1263,7 @@ def recompute_denivele():
             act["gain_alt"] = new_gain
             changed += 1
     if changed:
-        upload_json_content_to_drive(activities, "activities.json")
+        save_activities_to_drive(activities)
         msg = f"✅ Dénivelé positif recalculé sur {changed} activité(s)"
     else:
         msg = "ℹ️ Aucun changement de dénivelé détecté"
