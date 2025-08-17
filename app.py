@@ -115,6 +115,15 @@ if not openai_api_key:
 client = OpenAI(api_key=openai_api_key)
 print("✅ OpenAI client initialisé")
 
+# --- Helper date robuste ---
+def _date_key(a):
+    d = a.get("date") or ""
+    try:
+        return parser.isoparse(d)  # gère "Z" et offsets
+    except Exception:
+        return datetime.min
+
+
 # -------------------
 # Détection du type de séance (règles simples par distance)
 # -------------------
@@ -839,7 +848,11 @@ def compute_dashboard_data(activities):
         return _empty_dashboard_payload()
 
     # 2) Prendre la plus récente activité QUI A DES POINTS (et ne plus l'écraser ensuite)
-    last = next((a for a in reversed(activities) if isinstance(a.get("points"), list) and a["points"]), None)
+    last = max(
+        (a for a in activities if isinstance(a.get("points"), list) and a["points"]),
+        key=_date_key,
+        default=None
+    )
     if last is None:
         return _empty_dashboard_payload()
 
@@ -1068,18 +1081,22 @@ def index():
     if modified:
         save_activities_to_drive(activities)
         print("💾 activities.json mis à jour après complétion")
+        
+    # 🔽 Tri décroissant par date pour fiabiliser dashboard + carrousel
+    activities_sorted = sorted(activities, key=_date_key, reverse=True)
+
 
     log_step("Activities chargées et complétées", start_time)
     print(f"📂 {len(activities)} activités prêtes")
 
     # Calcul du dashboard
-    dashboard = compute_dashboard_data(activities)
+    dashboard = compute_dashboard_data(activities_sorted)
     log_step("Dashboard calculé", start_time)
 
     # Construction du carrousel
     activities_for_carousel = []
-    print("➡ building carousel from last", min(10, len(activities)), "activities")
-    for act in reversed(activities[-10:]):  # 10 dernières activités
+    print("➡ building carousel from most recent", min(10, len(activities_sorted)), "activities")
+    for act in activities_sorted[:10]:  # 10 plus récentes par date
         log_step(f"Début carrousel activité {act.get('date')}", start_time)
         print("   slide candidate:", act.get('date'))
         points = act.get("points", [])
