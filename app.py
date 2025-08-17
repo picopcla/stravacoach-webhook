@@ -277,6 +277,12 @@ def apply_fractionne_flags(activities):
     return activities, changed
 
 
+def _mean_cadence_spm(points):
+    """Moyenne de cadence (spm) sur une activité, None si pas de données."""
+    if not points:
+        return None
+    vals = [p.get("cad_spm") for p in points if isinstance(p.get("cad_spm"), (int, float))]
+    return round(sum(vals) / len(vals), 1) if vals else None
 
 
 print("✅ Helpers OK")
@@ -636,6 +642,111 @@ def enrich_single_activity(activity, fc_max_fractionnes):
     })
 
     return activity
+    
+def normalize_cadence_in_place(activities):
+    """
+    Convertit une cadence brute (cad_raw / cadence / cad) en 'cad_spm' (steps/min, deux pieds).
+    - Aucun appel réseau
+    - Heuristique one-foot: médiane < 120 => x2
+    - N'écrase pas si 'cad_spm' existe déjà
+    Retourne (activities, modified:bool)
+    """
+    modified = False
+    for act in activities or []:
+        pts = act.get("points") or []
+        if not pts:
+            continue
+
+        # Si déjà normalisé quelque part, on ne touche à rien
+        if any(isinstance(p.get("cad_spm"), (int, float)) for p in pts):
+            continue
+
+        # Série brute par point (ordre de priorité)
+        raw = []
+        for p in pts:
+            v = (p.get("cad_raw") if p.get("cad_raw") is not None else
+                 p.get("cadence")  if p.get("cadence")  is not None else
+                 p.get("cad")      if p.get("cad")      is not None else
+                 None)
+            raw.append(v)
+
+        vals = [v for v in raw if isinstance(v, (int, float))]
+        if not vals:
+            # pas de cadence dispo
+            act.setdefault("cadence_meta", {
+                "present": False, "units": "spm", "source": "none",
+                "coverage_pct": 0.0, "normalized": False, "one_foot_detected": False
+            })
+            continue
+
+        # Détection "one-foot"
+        median_val = sorted(vals)[len(vals)//2]
+        one_foot = median_val < 120.0
+        factor = 2.0 if one_foot else 1.0
+
+        filled = 0
+        for i, p in enumerate(pts):
+            v = raw[i]
+            if isinstance(v, (int, float)):
+                p["cad_spm"] = float(v) * factor
+                filled += 1
+            else:
+                p.setdefault("cad_spm", None)
+
+        act["cadence_meta"] = {
+            "present": True, "units": "spm", "source": "stream|raw",
+            "coverage_pct": round(100.0*filled/max(1,len(pts)), 1),
+            "normalized": bool(factor == 2.0),
+            "one_foot_detected": bool(one_foot),
+        }
+        modified = True
+
+    return activities, modified
+
+
+def _cadence_kpis(points):
+    """
+    KPIs de cadence à partir de 'cad_spm' :
+      - cad_mean_spm (moyenne, spm)
+      - cad_cv_pct   (coefficient de variation, %)
+      - cad_drift_spm_per_h (pente vs temps, spm/heure)
+    Renvoie des '-' si données insuffisantes.
+    """
+    if not points:
+        return {"cad_mean_spm": "-", "cad_cv_pct": "-", "cad_drift_spm_per_h": "-"}
+
+    vals, times = [], []
+    t0 = None
+    for p in points:
+        c = p.get("cad_spm")
+        t = p.get("time")
+        if isinstance(c, (int, float)) and isinstance(t, (int, float)):
+            vals.append(float(c))
+            if t0 is None:
+                t0 = t
+            times.append(float(t - t0))
+
+    if len(vals) < 20:
+        return {"cad_mean_spm": "-", "cad_cv_pct": "-", "cad_drift_spm_per_h": "-"}
+
+    v = np.array(vals, dtype=float)
+    m = float(np.nanmean(v))
+    s = float(np.nanstd(v))
+    cv_pct = round((s / m) * 100.0, 1) if m > 0 else None
+
+    t = np.array(times, dtype=float)
+    if np.nanvar(t) > 0 and len(t) == len(v):
+        slope_per_sec = float(np.polyfit(t, v, 1)[0])
+        drift_spm_per_h = round(slope_per_sec * 3600.0, 2)
+    else:
+        drift_spm_per_h = None
+
+    return {
+        "cad_mean_spm": round(m, 1),
+        "cad_cv_pct": cv_pct if cv_pct is not None else "-",
+        "cad_drift_spm_per_h": drift_spm_per_h if drift_spm_per_h is not None else "-"
+    }
+
 
 def enrich_activities(activities):
     fc_max_fractionnes = get_fcmax_from_fractionnes(activities)
@@ -673,20 +784,6 @@ def convert_short_term_allures(short_term):
     return short_term
 
 print("✅ Activities OK")
-
-def _empty_dashboard_payload():
-    # On renvoie des tableaux vides sérialisés en JSON, pour éviter
-    # les "const x = ;" côté JS si une clé manque.
-    return {
-        "labels": "[]",
-        "points_alt": "[]",
-        "points_fc": "[]",
-        "allure_curve": "[]",
-        "history_dates": "[]",
-        "history_k": "[]",
-        "history_drift": "[]",
-    }
-
 
 # --- Helper : payload vide mais JS valide (et clés attendues présentes) ---
 def _empty_dashboard_payload():
@@ -939,6 +1036,12 @@ def index():
     )
 
     modified = False
+ 
+    # 👣 Normalisation cadence (cad_raw -> cad_spm), local, sans réseau
+    activities, changed_norm = normalize_cadence_in_place(activities)
+    modified = modified or changed_norm
+
+    
     if needs_weather:
         print("🌤️ Météo manquante → calcul météo")
         activities = ensure_weather_data(activities)
@@ -1031,6 +1134,9 @@ def index():
             ).strftime("%Y-%m-%d")
         except Exception:
             date_formatted = "-"
+            
+        # 👣 KPIs de cadence (à partir de cad_spm)
+        cad_kpis = _cadence_kpis(points)
 
         activities_for_carousel.append({
             "date": date_formatted,
@@ -1051,6 +1157,10 @@ def index():
             "points_fc": json.dumps(points_fc),
             "points_alt": json.dumps(points_alt),
             "allure_curve": json.dumps(allure_curve),
+            "cad_mean_spm": cad_kpis["cad_mean_spm"],
+            "cad_cv_pct": cad_kpis["cad_cv_pct"],
+            "cad_drift_spm_per_h": cad_kpis["cad_drift_spm_per_h"],
+
         })
 
     print("➡ activities_for_carousel count:", len(activities_for_carousel))
